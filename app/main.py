@@ -652,6 +652,7 @@ def create_app(
             support_email=_contact_local_part("support", request),
             security_email=_contact_local_part("security", request),
             abuse_email=_contact_local_part("abuse", request),
+            coffee_url=settings.support_coffee_url,
         )
 
     @app.get("/status", include_in_schema=False)

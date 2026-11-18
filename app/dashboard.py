@@ -1220,6 +1220,12 @@ APP_SHELL_HTML = r"""<!DOCTYPE html>
             <path d="M16 7.2 23.9 16.3 16 21 8.1 16.3z" fill="#ffffff" opacity="0.92" />
             <path d="M16 22.7 23.9 18.1 16 25.4 8.1 18.1z" fill="#ffffff" opacity="0.55" />
           </symbol>
+          <symbol id="coffee-cup" viewBox="0 0 32 32">
+            <rect width="32" height="32" rx="9" fill="#ffdd00" />
+            <path d="M9.2 13.4h12.1v5.9a4.6 4.6 0 0 1-4.6 4.6h-2.9a4.6 4.6 0 0 1-4.6-4.6z" fill="#0b0b0d" />
+            <path d="M21.3 14.6h1.6a2.5 2.5 0 0 1 0 5h-1.6" fill="none" stroke="#0b0b0d" stroke-width="1.9" />
+            <path d="M12.6 9.1c-.9.9-.9 1.8 0 2.7M16.1 8.4c-.9.9-.9 1.8 0 2.7M19.6 9.1c-.9.9-.9 1.8 0 2.7" fill="none" stroke="#0b0b0d" stroke-width="1.5" stroke-linecap="round" opacity="0.85" />
+          </symbol>
         </svg>
 
         <section class="page-hero rise" style="--i:0" id="donations-bay" aria-labelledby="support-title">
@@ -1231,6 +1237,7 @@ APP_SHELL_HTML = r"""<!DOCTYPE html>
               <span class="chip">No ads</span>
               <span class="chip">No trackers</span>
               <span class="chip">One person</span>
+              <span class="chip">Card or crypto</span>
             </div>
           </div>
           <div class="support-side">
@@ -1267,9 +1274,11 @@ APP_SHELL_HTML = r"""<!DOCTYPE html>
           <section class="block rise" style="--i:2" aria-labelledby="addresses-title">
             <div class="block-head">
               <span class="label">Donations</span>
-              <h2 id="addresses-title">Where to send it</h2>
-              <p>One address per chain, and every token that address accepts is listed beside it. Crypto transfers are irreversible, so check the network before you send.</p>
+              <h2 id="addresses-title">Two ways to send it</h2>
+              <p>A card or wallet you already have, one transfer, nothing recurring. If you use crypto, send only the asset and network listed beside the address — those transfers are irreversible.</p>
             </div>
+
+            {{coffee_panel}}
 
             <p class="support-demo" id="support-demo" hidden>Demo data — no live addresses are configured.</p>
             <p class="support-status" id="support-status" role="status" aria-live="polite">Loading donation details…</p>
@@ -1608,6 +1617,7 @@ def render_app_shell(
     support_email: str = "",
     security_email: str = "",
     abuse_email: str = "",
+    coffee_url: str = "",
 ) -> str:
     view_key = (initial_view or "status").strip().lower()
     if view_key not in _VIEW_META:
@@ -1649,6 +1659,31 @@ def render_app_shell(
             return ""
         user, _, host = addr.partition("@")
         return addr if user and "." in host else ""
+
+    # Buy Me a Coffee (or whatever card-payment link the operator sets). Only
+    # rendered for an https URL, so an empty setting simply hides the panel and
+    # a typo can never become a javascript: link.
+    coffee_href = (coffee_url or "").strip()
+    if not coffee_href.startswith("https://"):
+        coffee_panel = ""
+    else:
+        coffee_panel = (
+            '<div class="coffee-panel">'
+            '<span class="coffee-mark" aria-hidden="true">'
+            '<svg viewBox="0 0 32 32" focusable="false"><use href="#coffee-cup"/></svg>'
+            "</span>"
+            '<div class="coffee-copy">'
+            '<span class="coffee-kind">Easiest · card, Apple Pay, PayPal</span>'
+            "<h3>Buy me a coffee</h3>"
+            "<p>No account, no crypto, no amount that buys anything extra. If the gateway "
+            "saved you a subscription this month, this is the shortest thank-you.</p>"
+            "</div>"
+            f'<a class="button primary coffee-cta" href="{html.escape(coffee_href, quote=True)}" '
+            'target="_blank" rel="noopener noreferrer">'
+            'Open Buy Me a Coffee<span class="arrow" aria-hidden="true">↗</span></a>'
+            "</div>"
+            '<p class="crypto-divider"><span>or send crypto directly</span></p>'
+        )
 
     mail_support = _mail(support_email)
     mail_security = _mail(security_email)
@@ -1781,6 +1816,7 @@ def render_app_shell(
         "{{status_hidden}}": "" if active_view == "status" else " hidden",
         "{{plays_section}}": plays_section,
         "{{covers_hidden}}": covers_hidden,
+        "{{coffee_panel}}": coffee_panel,
         "{{contact_cards}}": contact_cards,
         "{{contact_lead}}": contact_lead,
         "{{abuse_line}}": abuse_line,

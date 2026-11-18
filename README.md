@@ -150,7 +150,11 @@ repository and it will be read.
 The gateway is free to use and paid for out of one person's pocket. Donations cover compute,
 egress and storage; they buy no priority, no perks and no extra quality.
 
-- Addresses and terms: <https://bitchord.confih.tech/support>
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-buymeacoffee.com%2Fconfih-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/confih)
+
+- **Card, Apple Pay or PayPal:** <https://buymeacoffee.com/confih> — no account needed.
+- **Crypto:** BTC, SOL, USDC and USDT addresses, with QR codes and the list of tokens each
+  address accepts, at <https://bitchord.confih.tech/support>.
 - Bugs and provider breakage: `support@bitchord.confih.tech`, or
   [an issue](https://github.com/confnameless/confih-addon/issues) with a track id and the
   quality you requested.

@@ -85,6 +85,9 @@ class Settings(BaseSettings):
     support_email: str = ""
     security_email: str = ""
     abuse_email: str = ""
+    # Card/Apple Pay/PayPal tip link shown above the crypto addresses on
+    # /support. Empty hides the panel; only https:// links are rendered.
+    support_coffee_url: str = "https://buymeacoffee.com/confih"
 
     # Set only when a reverse proxy (Caddy, nginx) is the sole way in. The
     # proxy's X-Forwarded-For is then trusted for per-client rate limiting.
