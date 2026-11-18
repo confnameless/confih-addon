@@ -151,8 +151,12 @@ The gateway is free to use and paid for out of one person's pocket. Donations co
 egress and storage; they buy no priority, no perks and no extra quality.
 
 - Addresses and terms: <https://bitchord.confih.tech/support>
-- Bugs and provider breakage: [open an issue](https://github.com/confnameless/confih-addon/issues)
-  with a track id and the quality you requested.
+- Bugs and provider breakage: `support@bitchord.confih.tech`, or
+  [an issue](https://github.com/confnameless/confih-addon/issues) with a track id and the
+  quality you requested.
+- Security reports: `security@bitchord.confih.tech` — please don't post exploit details
+  in a public issue first.
+- Rights-holder or abuse enquiries: `abuse@bitchord.confih.tech`.
 - Starring the repo is the cheapest way to help other BitChord users find this gateway.
 
 ## License

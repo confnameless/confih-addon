@@ -358,11 +358,11 @@ _VIEW_META: dict[str, dict[str, str]] = {
         "robots": '<meta name="robots" content="noindex, nofollow" />',
     },
     "about": {
-        "title": "About & Support — Confih Gateway",
-        "desc": "What the Confih Hi-Res gateway for BitChord does, what its numbers mean, how it handles your data, and how to support it.",
+        "title": "About — Confih Gateway",
+        "desc": "What the Confih Hi-Res gateway for BitChord does, how it resolves Qobuz and Tidal streams, what its numbers mean, and what it does with your data.",
         "og_title": "About the Confih gateway",
-        "og_desc": "Architecture, privacy model, metric definitions, and community support for the Confih Hi-Res gateway.",
-        "robots": '<meta name="robots" content="noindex, nofollow" />',
+        "og_desc": "How the addon resolves hi-res Qobuz and Tidal streams, the privacy model, and what its status numbers mean.",
+        "robots": "",
     },
     "support": {
         "title": "Support — Confih Gateway",
@@ -1138,10 +1138,11 @@ APP_SHELL_HTML = r"""<!DOCTYPE html>
               <p>Provider names and marks belong to their owners. Quality claims come from what the provider returns, not from marketing copy.</p>
             </div>
             <div class="prose">
-              <p>The gateway is free to use. Donations are optional and never unlock extra access. If something is broken, the status page and the repository are the honest places to look.</p>
+              <p>The gateway is free to use. Donations are optional and never unlock extra access. If something is broken, the status page and the repository are the honest places to look{{contact_lead}}</p>
               <div class="cta-row">
                 <a class="button primary" href="{{home_href}}" data-nav-view="status">View live status</a>
                 <a class="button secondary" href="/support" data-nav-view="support">Support the gateway</a>
+                <a class="button quiet" href="https://github.com/confnameless/confih-addon" target="_blank" rel="noopener noreferrer">Gateway source</a>
                 <a class="button quiet" href="https://github.com/kushagrasinghx/BitChord" target="_blank" rel="noopener noreferrer">BitChord on GitHub</a>
               </div>
             </div>
@@ -1369,6 +1370,15 @@ APP_SHELL_HTML = r"""<!DOCTYPE html>
               </details>
             </div>
           </section>
+
+          <section class="block rise" style="--i:7" aria-labelledby="contact-title">
+            <div class="block-head">
+              <span class="label">Contact</span>
+              <h2 id="contact-title">Reach a person</h2>
+              <p>No ticket system and no chatbot. Two addresses, both read by the same human.</p>
+            </div>
+            <div class="contact-grid">{{contact_cards}}</div>
+          </section>
         </div>
       </section>
 
@@ -1379,7 +1389,7 @@ APP_SHELL_HTML = r"""<!DOCTYPE html>
     <div class="shell foot-inner">
       <div>
         <span class="foot-brand"><img class="foot-logo" src="/assets/confih-logo.svg?v={{v}}" alt="Confih" width="92" height="34" /></span>
-        <p>BitChord is an open-source YouTube Music client. This is the Confih Hi-Res Gateway. Not affiliated with Qobuz, Tidal, YouTube or BitChord.</p>
+        <p>BitChord is an open-source YouTube Music client. This is the Confih Hi-Res Gateway. Not affiliated with Qobuz, Tidal, YouTube or BitChord.{{abuse_line}}</p>
         <span class="foot-time">Last checked <time id="foot-updated" datetime="">—</time></span>
       </div>
       <div class="foot-links">
@@ -1595,6 +1605,9 @@ def render_app_shell(
     addon_base_prefix: str = "",
     capabilities: dict[str, Any] | None = None,
     canonical_path: str = "/",
+    support_email: str = "",
+    security_email: str = "",
+    abuse_email: str = "",
 ) -> str:
     view_key = (initial_view or "status").strip().lower()
     if view_key not in _VIEW_META:
@@ -1627,6 +1640,83 @@ def render_app_shell(
         "asset_version": ASSET_VERSION,
         "capabilities": caps,
     }
+    # Contact routes are derived from the host the request arrived on, so the
+    # HTML never bakes in this deployment's domain. Empty when no mail host is
+    # configured, which keeps the site from advertising an address that bounces.
+    def _mail(addr: str) -> str:
+        addr = (addr or "").strip()
+        if "@" not in addr:
+            return ""
+        user, _, host = addr.partition("@")
+        return addr if user and "." in host else ""
+
+    mail_support = _mail(support_email)
+    mail_security = _mail(security_email)
+    mail_abuse = _mail(abuse_email)
+
+    # Cloudflare's Scrape Shield rewrites literal mail addresses into a
+    # /cdn-cgi/l/email-protection link that only works once its script runs.
+    # The address is therefore assembled rather than written: user and domain
+    # in two spans, the @ drawn by CSS, and site.js upgrading the link to a
+    # real mailto: from data-mail. Readable and mailable with or without that
+    # Cloudflare feature, and no injected script on the page either way.
+    def _mail_html(address: str) -> str:
+        user, _, host = address.partition("@")
+        return (
+            f'<span class="mail-user">{html.escape(user)}</span>'
+            '<span class="mail-at" aria-hidden="true"></span>'
+            '<span class="sr-only"> at </span>'
+            f'<span class="mail-domain">{html.escape(host)}</span>'
+        )
+
+    def _mail_pair(address: str) -> str:
+        user, _, host = address.partition("@")
+        return html.escape(f"{user}|{host}", quote=True)
+
+    def _contact_card(kind: str, address: str, blurb: str) -> str:
+        user, _, host = address.partition("@")
+        pair = html.escape(f"{user}|{host}", quote=True)
+        return (
+            f'<a class="card card-link contact-card" data-mail="{pair}" href="#contact-title">'
+            f'<span class="contact-kind">{html.escape(kind)}</span>'
+            f"<h3>{_mail_html(address)}</h3>"
+            f"<p>{html.escape(blurb)}</p>"
+            "</a>"
+        )
+
+    cards = ""
+    if mail_support:
+        cards += _contact_card(
+            "Support · donations",
+            mail_support,
+            "Something is broken, a donation bounced, or you want to tell me the gateway "
+            "found you an album.",
+        )
+    if mail_security:
+        cards += _contact_card(
+            "Security",
+            mail_security,
+            "A vulnerability, a leaked credential or something that exposes another listener. "
+            "Please do not post exploit details in a public issue.",
+        )
+    contact_cards = cards or (
+        '<p class="contact-empty">No mail address is configured on this deployment yet. '
+        "The repository is the fastest route in the meantime.</p>"
+    )
+    contact_lead = (
+        f', or write to <a class="mail-link" data-mail="{_mail_pair(mail_support)}" '
+        f'href="#contact-title">{_mail_html(mail_support)}</a>.'
+        if mail_support
+        else "."
+    )
+    abuse_line = (
+        " Rights-holder or abuse enquiries: "
+        f'<a class="mail-link" data-mail="{_mail_pair(mail_abuse)}" '
+        f'href="#contact-title">{_mail_html(mail_abuse)}</a>.'
+        if mail_abuse
+        else ""
+    )
+
     del addon_base_prefix  # never embed path secret in public HTML
 
     plays_section = (
@@ -1691,6 +1781,9 @@ def render_app_shell(
         "{{status_hidden}}": "" if active_view == "status" else " hidden",
         "{{plays_section}}": plays_section,
         "{{covers_hidden}}": covers_hidden,
+        "{{contact_cards}}": contact_cards,
+        "{{contact_lead}}": contact_lead,
+        "{{abuse_line}}": abuse_line,
         "{{boot_json}}": _safe_json_script(boot_payload),
     }
 

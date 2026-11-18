@@ -79,6 +79,13 @@ class Settings(BaseSettings):
     donate_polygon: str = ""
     # Test deployments can opt into clearly-labelled placeholder addresses.
     donate_demo: bool = False
+    # Contact routes shown on /support, /about and in the footer. Empty means
+    # "derive from the host this deployment answers on" (support@gw.example.com);
+    # set these three to pin them to a real mailbox.
+    support_email: str = ""
+    security_email: str = ""
+    abuse_email: str = ""
+
     # Set only when a reverse proxy (Caddy, nginx) is the sole way in. The
     # proxy's X-Forwarded-For is then trusted for per-client rate limiting.
     trust_proxy_headers: bool = False

@@ -35,9 +35,12 @@ things that would, and none of them are here.
 
 ## Reporting a vulnerability
 
-Open an issue marked **security** with the smallest reproduction you can, or a description of
-the class of bug if you would rather not publish the details. Please do not test against other
-listeners' traffic or attempt to access accounts that are not yours.
+Mail **security@bitchord.confih.tech** with the smallest reproduction you can. If you cannot
+use mail, open an issue that says only "security report, contact me" and no details — the
+address is read before the tracker.
+
+Please do not test against other listeners' traffic or attempt to access accounts that are not
+yours.
 
 Reports that matter most: auth bypass on `/search` or `/stream/*`, admin/vault access, SSRF
 through the artwork or provider proxy paths, path traversal in the artwork cache, and anything

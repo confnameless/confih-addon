@@ -664,6 +664,15 @@
     }
 
     function scan() {
+      // Contact addresses are written as user + domain so no host (Cloudflare
+      // included) rewrites them into a script-dependent link. Upgrade each one
+      // to a real mailto: here; without JS the text is still readable.
+      Array.prototype.forEach.call(document.querySelectorAll('[data-mail]'), function (link) {
+        var parts = String(link.getAttribute('data-mail') || '').split('|');
+        if (parts.length !== 2 || !parts[0] || !parts[1]) return;
+        link.setAttribute('href', 'mailto:' + parts[0] + '@' + parts[1]);
+      });
+
       document.querySelectorAll(sweepSel).forEach(function (el) {
         el.classList.add('sweep');
       });

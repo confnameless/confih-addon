@@ -298,15 +298,17 @@ async def test_sitemap_and_robots_respect_origin_public_plays_and_path_secret(
         ) as client:
             sm = await client.get("/sitemap.xml")
             assert sm.status_code == 200
+            # Only indexable pages are listed. /plays and /support answer with
+            # X-Robots-Tag: noindex, so they must not appear here.
             for loc in (
                 "http://127.0.0.1:8899/",
                 "http://127.0.0.1:8899/manifest.json",
                 "http://127.0.0.1:8899/status",
-                "http://127.0.0.1:8899/plays",
                 "http://127.0.0.1:8899/about",
-                "http://127.0.0.1:8899/support",
             ):
                 assert f"<loc>{loc}</loc>" in sm.text
+            assert "/plays</loc>" not in sm.text
+            assert "/support</loc>" not in sm.text
 
             rb = await client.get("/robots.txt")
             assert rb.status_code == 200

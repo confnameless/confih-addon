@@ -574,10 +574,10 @@ def create_app(
             entries.append((f"{esc_url}/status", "daily", "0.9"))
         else:
             entries.append((f"{esc_url}/status", "daily", "1.0"))
-        if settings.public_plays:
-            entries.append((f"{esc_url}/plays", "hourly", "0.8"))
+        # Only pages that are actually indexable belong here: /plays and
+        # /support send X-Robots-Tag: noindex, so listing them was a
+        # contradiction. /about is the page a search engine should land on.
         entries.append((f"{esc_url}/about", "weekly", "0.7"))
-        entries.append((f"{esc_url}/support", "monthly", "0.6"))
         url_nodes = "\n".join(
             f"  <url><loc>{loc}</loc><changefreq>{freq}</changefreq><priority>{prio}</priority></url>"
             for loc, freq, prio in entries
@@ -617,6 +617,21 @@ def create_app(
             or (settings.donate_polygon or "").strip()
         )
 
+    def _contact_local_part(kind: str, request: Request) -> str:
+        """support@ / security@ / abuse@ for whichever host this request used.
+
+        An explicit setting wins. Otherwise the domain is taken from the public
+        URL, so the HTML never hardcodes this deployment's hostname and a test
+        or self-hosted copy advertises its own address.
+        """
+        override = (getattr(settings, f"{kind}_email", "") or "").strip()
+        if override:
+            return override
+        host = (urlparse(_public_display_url(settings, request)).hostname or "").strip()
+        if not host or "." not in host or host.replace(".", "").isdigit():
+            return ""
+        return f"{kind}@{host}"
+
     def _render_shell(
         request: Request,
         *,
@@ -634,6 +649,9 @@ def create_app(
             addon_base_prefix="",
             capabilities=_public_capabilities(),
             canonical_path=canonical_path,
+            support_email=_contact_local_part("support", request),
+            security_email=_contact_local_part("security", request),
+            abuse_email=_contact_local_part("abuse", request),
         )
 
     @app.get("/status", include_in_schema=False)
@@ -666,16 +684,15 @@ def create_app(
     @app.get("/about", include_in_schema=False)
     @app.get("/about/", include_in_schema=False)
     async def about_page(request: Request) -> Response:
+        # The one page search engines may index: it explains what this is
+        # without exposing anyone's listening or a wallet address.
         return HTMLResponse(
             content=_render_shell(
                 request,
                 initial_view="about",
                 canonical_path="/about",
             ),
-            headers={
-                "Cache-Control": "no-store",
-                "X-Robots-Tag": "noindex, nofollow",
-            },
+            headers={"Cache-Control": "no-store"},
         )
 
     def _current_public_stats_payload(request: Request | None = None) -> dict[str, Any]:
