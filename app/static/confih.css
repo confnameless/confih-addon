@@ -981,6 +981,88 @@ html.is-confih-loading .brand-logo-loader {
   box-shadow: 0 1px 0 var(--rim-top) inset, 0 1px 4px rgba(0, 0, 0, 0.28);
 }
 
+/* Support is the one nav item that asks for something, so it is a gold pill:
+   a solid tinted base (which also hides the sliding indicator behind it) with
+   a warm outer glow that breathes. Reduced motion freezes the breathing. */
+.site-nav a[data-nav-view="support"] {
+  color: #ffe9ad;
+  font-weight: 600;
+  background-color: #211a05;
+  background-image: linear-gradient(
+    180deg,
+    rgba(234, 179, 8, 0.24),
+    rgba(234, 179, 8, 0.1)
+  );
+  box-shadow:
+    0 1px 0 rgba(255, 240, 180, 0.26) inset,
+    0 0 0 1px rgba(234, 179, 8, 0.34),
+    0 4px 14px -6px rgba(234, 179, 8, 0.5);
+}
+
+.site-nav a[data-nav-view="support"]::before {
+  content: "";
+  position: absolute;
+  inset: -45% -30%;
+  z-index: -1;
+  border-radius: 50%;
+  background: radial-gradient(
+    50% 50% at 50% 50%,
+    rgba(234, 179, 8, 0.5),
+    rgba(234, 179, 8, 0.18) 55%,
+    transparent 76%
+  );
+  filter: blur(9px);
+  opacity: 0.55;
+  pointer-events: none;
+  animation: confih-gold-breathe 7s var(--ease) infinite;
+}
+
+.site-nav a[data-nav-view="support"]:hover,
+.site-nav a[data-nav-view="support"]:focus-visible {
+  color: #fff3cf;
+  background-image: linear-gradient(
+    180deg,
+    rgba(234, 179, 8, 0.34),
+    rgba(234, 179, 8, 0.16)
+  );
+  box-shadow:
+    0 1px 0 rgba(255, 245, 200, 0.35) inset,
+    0 0 0 1px rgba(240, 190, 30, 0.55),
+    0 8px 22px -8px rgba(234, 179, 8, 0.7);
+}
+
+.site-nav a[data-nav-view="support"]:hover::before,
+.site-nav a[data-nav-view="support"]:focus-visible::before {
+  opacity: 0.95;
+}
+
+/* Only visible with the fallback nav (no sliding indicator). */
+.site-nav:not(.has-indicator) a[data-nav-view="support"][aria-current="page"] {
+  background-image: linear-gradient(
+    180deg,
+    rgba(234, 179, 8, 0.3),
+    rgba(234, 179, 8, 0.14)
+  );
+}
+
+@keyframes confih-gold-breathe {
+  0%,
+  100% {
+    opacity: 0.42;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-nav a[data-nav-view="support"]::before {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+}
+
 .nav-indicator {
   position: absolute;
   top: 0;
@@ -2081,5 +2163,72 @@ body.modal-open {
   textarea:focus-visible {
     outline: 2px solid Highlight;
     outline-offset: 2px;
+  }
+}
+
+/* ── Header icon buttons ────────────────────────────────────────────────
+   The two outbound links are marks, not sentences: BitChord's app icon and
+   the GitHub mark. Labels stay on `aria-label`/`title`, targets stay 44px. */
+
+.icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  color: var(--ink-3);
+  transition:
+    color var(--t-fast) var(--ease),
+    background-color var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease),
+    transform var(--t-mid) var(--spring);
+}
+
+.icon-btn svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+
+.icon-btn:hover {
+  color: var(--ink);
+  background: var(--raised);
+  border-color: var(--edge-2);
+  transform: translateY(-1px);
+}
+
+.icon-btn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* BitChord's tile is already a filled mark; it only dims until hover. */
+.icon-btn-bc svg {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  opacity: 0.82;
+  transition: opacity var(--t-fast) var(--ease), transform var(--t-mid) var(--spring);
+}
+
+.icon-btn-bc:hover svg {
+  opacity: 1;
+  transform: scale(1.04);
+}
+
+@media (pointer: coarse) {
+  .icon-btn {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-btn,
+  .icon-btn:hover,
+  .icon-btn-bc:hover svg {
+    transform: none;
+    transition: color var(--t-fast) var(--ease);
   }
 }

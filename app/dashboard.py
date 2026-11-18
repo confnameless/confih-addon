@@ -464,10 +464,21 @@ APP_SHELL_HTML = r"""<!DOCTYPE html>
         <a href="/support" data-nav-view="support"{{support_current}}>Support</a>
       </nav>
       <div class="head-actions">
-        <a class="quiet-link" href="https://github.com/kushagrasinghx/BitChord/releases" target="_blank" rel="noopener noreferrer" aria-label="BitChord app releases on GitHub">
-          <span>BitChord app</span>
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M6 3.5H12.5V10M12.5 3.5L4 12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        <a class="icon-btn icon-btn-bc" href="https://github.com/kushagrasinghx/BitChord" target="_blank" rel="noopener noreferrer" aria-label="BitChord on GitHub" title="BitChord — the player this addon serves">
+          <svg viewBox="0 0 1024 1024" aria-hidden="true" focusable="false">
+            <defs>
+              <linearGradient id="bit-chord-mark" x1="512" y1="0" x2="512" y2="1024" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#FB5C74"/>
+                <stop offset="1" stop-color="#FA233B"/>
+              </linearGradient>
+            </defs>
+            <rect width="1024" height="1024" rx="256" fill="url(#bit-chord-mark)"/>
+            <path d="M142.673 587.458C156.137 564.68 185.634 557.171 208.339 570.696H208.363C373.538 668.803 646.056 677.824 803.759 629.96C829.083 622.28 855.863 636.576 863.537 661.9C871.211 687.236 856.927 713.999 831.585 721.698C650.553 776.654 349.61 766.036 159.441 653.143C136.614 639.624 129.148 610.206 142.673 587.458ZM213.749 425.386C225.316 406.567 249.917 400.631 268.705 412.198C406.463 496.89 616.454 521.412 779.396 471.951C800.527 465.569 822.846 477.478 829.26 498.574C835.624 519.705 823.709 541.982 802.614 548.408C616.491 604.882 385.105 577.526 226.906 480.312C208.118 468.745 202.183 444.15 213.749 425.386ZM276.478 285.823C285.657 270.768 305.363 265.994 320.418 275.235C440.747 348.734 592.225 365.381 770.619 324.622C787.81 320.706 804.946 331.476 808.862 348.673C812.797 365.87 802.069 383.005 784.836 386.922C589.612 431.542 422.154 412.32 287.064 329.763C272.01 320.522 267.237 300.877 276.478 285.823Z" fill="white"/>
+          </svg>
+        </a>
+        <a class="icon-btn" href="https://github.com/confnameless/confih-addon" target="_blank" rel="noopener noreferrer" aria-label="Gateway source on GitHub" title="Gateway source">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path fill="currentColor" d="M12 .5C5.73.5.5 5.73.5 12a11.5 11.5 0 0 0 7.86 10.91c.58.11.79-.25.79-.55v-2.1c-3.2.7-3.88-1.4-3.88-1.4-.52-1.34-1.28-1.7-1.28-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.56-.29-5.26-1.28-5.26-5.7 0-1.26.45-2.3 1.19-3.1-.12-.29-.52-1.47.11-3.06 0 0 .97-.31 3.18 1.18a10.9 10.9 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.77.11 3.06.74.8 1.19 1.84 1.19 3.1 0 4.43-2.7 5.4-5.28 5.69.41.36.78 1.06.78 2.13v3.16c0 .3.21.67.8.55A11.5 11.5 0 0 0 23.5 12C23.5 5.73 18.27.5 12 .5Z"/>
           </svg>
         </a>
       </div>
