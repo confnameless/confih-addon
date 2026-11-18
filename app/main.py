@@ -26,6 +26,7 @@ import json
 import logging
 import mimetypes
 import re
+import secrets
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -39,6 +40,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.gzip import GZipMiddleware
 
 from .artwork import ArtworkCache
 from .cache import SingleFlightCache
@@ -87,14 +89,50 @@ mimetypes.add_type("font/woff2", ".woff2")
 mimetypes.add_type("text/javascript", ".mjs")
 mimetypes.add_type("text/plain", ".glsl")
 
-_HTML_CSP = (
+# `script-src` names a fresh nonce per response instead of `'unsafe-inline'`:
+# the pages have exactly two inline scripts (the no-flash theme boot), so a
+# nonce costs nothing and removes the "any injected <script> runs" half of an
+# XSS. `style-src` keeps 'unsafe-inline' because the markup sets custom
+# properties through style attributes.
+# Anonymous JSON the pages poll themselves. Rate-limited as a group so a
+# scraper cannot turn a public status page into a free load generator.
+_PAGE_API_PATHS = frozenset(
+    {"/api/plays", "/api/overview", "/api/public-stats", "/api/support"}
+)
+
+
+_HTML_CSP_TEMPLATE = (
     "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; "
     "form-action 'self'; img-src 'self' data:; "
     "style-src 'self' 'unsafe-inline'; "
     "font-src 'self'; "
-    "script-src 'self' 'unsafe-inline'; "
+    "script-src {script_src}; "
     "connect-src 'self'"
 )
+_HTML_CSP = _HTML_CSP_TEMPLATE.format(script_src="'self' 'unsafe-inline'")
+
+
+def _page_response(
+    request: Request,
+    content: str,
+    *,
+    headers: dict[str, str] | None = None,
+) -> Response:
+    """Serve an HTML page that a browser may keep in its back/forward cache.
+
+    `no-store` (what these pages used to send) tells Chrome to throw the
+    document away, so pressing Back re-downloads an 80 KB shell and replays
+    every script. `no-cache` keeps the same freshness contract — the browser
+    revalidates before reusing it — but allows bfcache, and a matching ETag
+    turns the revalidation into a bodyless 304.
+    """
+    body = content.encode("utf-8")
+    etag = 'W/"' + hashlib.blake2b(body, digest_size=10).hexdigest() + '"'
+    merged: dict[str, str] = {"Cache-Control": "no-cache", "ETag": etag}
+    merged.update(headers or {})
+    if (request.headers.get("if-none-match") or "").strip() == etag:
+        return Response(status_code=304, headers=merged)
+    return HTMLResponse(content=body, headers=merged)
 
 
 def create_app(
@@ -112,6 +150,10 @@ def create_app(
         settings.cache_max_entries, settings.stream_cache_ttl_seconds
     )
     limiter = SlidingWindowLimiter(settings.rate_limit_per_minute)
+    # Public JSON is cheap but not free, and it is the one surface an anonymous
+    # client can hammer. The pages poll it a handful of times a minute, so a
+    # generous ceiling only ever catches automated scraping.
+    page_api_limiter = SlidingWindowLimiter(240)
     stats_file = Path(settings.data_dir).expanduser() / "stats.json"
     stats = TrafficStats(persist_path=stats_file)
     plays_file = Path(settings.data_dir).expanduser() / "plays.json"
@@ -211,6 +253,12 @@ def create_app(
     if static_dir.is_dir():
         app.mount("/assets", StaticFiles(directory=static_dir), name="assets")
 
+    # Text the browser has to parse before it can paint is worth compressing
+    # even when a CDN usually does it: self-hosters, LAN access, and anything
+    # that talks to the origin directly get the same win. Cloudflare keeps
+    # doing brotli at the edge for the public host.
+    app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
+
     # ── Middleware: BitChord auth, then rate limiting ────────────────────
     manifest_path = f"{prefix}/manifest.json"
     search_path = f"{prefix}/search"
@@ -233,9 +281,12 @@ def create_app(
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         if request.url.path.startswith("/assets/"):
             if response.status_code < 400:
+                # Every URL carries ?v=<content hash>, so a cached copy can
+                # never be stale: a deploy changes the URL. Phones pay for
+                # revalidation on every page view otherwise.
                 response.headers.setdefault(
                     "Cache-Control",
-                    "public, max-age=300, stale-while-revalidate=86400",
+                    "public, max-age=31536000, immutable",
                 )
             else:
                 response.headers.setdefault("Cache-Control", "no-store")
@@ -244,12 +295,19 @@ def create_app(
         response.headers.setdefault(
             "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
         )
+        response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
+        response.headers.setdefault("X-Permitted-Cross-Domain-Policies", "none")
         content_type = (response.headers.get("content-type") or "").lower()
         if content_type.startswith("text/html"):
             response.headers.setdefault(
                 "Cross-Origin-Opener-Policy", "same-origin"
             )
-            response.headers.setdefault("Content-Security-Policy", _HTML_CSP)
+            nonce = getattr(request.state, "csp_nonce", "")
+            script_src = f"'self' 'nonce-{nonce}'" if nonce else "'self'"
+            response.headers.setdefault(
+                "Content-Security-Policy",
+                _HTML_CSP_TEMPLATE.format(script_src=script_src),
+            )
         forwarded_proto = (
             (request.headers.get("x-forwarded-proto") or "")
             .split(",", 1)[0]
@@ -314,6 +372,28 @@ def create_app(
                                 "error": "rate_limited",
                                 "code": "rate_limited",
                                 "message": "Too many addon requests; retry shortly.",
+                            },
+                            status_code=429,
+                            headers={
+                                "Retry-After": str(retry_after),
+                                "Cache-Control": "no-store",
+                            },
+                        ),
+                    )
+
+            if path in (_PAGE_API_PATHS):
+                allowed, retry_after = await page_api_limiter.hit(
+                    f"page-api:{subject}"
+                )
+                if not allowed:
+                    status = 429
+                    return _secure_response(
+                        request,
+                        JSONResponse(
+                            {
+                                "error": "rate_limited",
+                                "code": "rate_limited",
+                                "message": "Too many requests; retry shortly.",
                             },
                             status_code=429,
                             headers={
@@ -509,16 +589,14 @@ def create_app(
                         "Vary": "Accept, User-Agent",
                     },
                 )
-            return HTMLResponse(
-                content=_render_shell(
+            return _page_response(
+                request,
+                _render_shell(
                     request,
                     initial_view="status",
                     canonical_path="/status" if settings.addon_path_secret else "/",
                 ),
-                headers={
-                    "Cache-Control": "no-store, no-cache, must-revalidate",
-                    "Vary": "Accept, User-Agent",
-                },
+                headers={"Vary": "Accept, User-Agent"},
             )
         if request.method == "HEAD":
             return Response(status_code=200, media_type="application/json")
@@ -638,7 +716,11 @@ def create_app(
         initial_view: str,
         canonical_path: str,
     ) -> str:
+        """Render the SPA shell, minting the CSP nonce the inline boot needs."""
+        nonce = secrets.token_urlsafe(16)
+        request.state.csp_nonce = nonce
         return render_app_shell(
+            script_nonce=nonce,
             initial_view=initial_view,
             public_url=_public_display_url(settings, request),
             addon_name=settings.addon_name,
@@ -658,28 +740,26 @@ def create_app(
     @app.get("/status", include_in_schema=False)
     @app.get("/monitor", include_in_schema=False)
     async def status_page(request: Request) -> Response:
-        return HTMLResponse(
-            content=_render_shell(
+        return _page_response(
+            request,
+            _render_shell(
                 request,
                 initial_view="status",
                 canonical_path="/status" if settings.addon_path_secret else "/",
             ),
-            headers={"Cache-Control": "no-store"},
         )
 
     @app.get("/support", include_in_schema=False)
     @app.get("/support/", include_in_schema=False)
     async def support_page(request: Request) -> Response:
-        return HTMLResponse(
-            content=_render_shell(
+        return _page_response(
+            request,
+            _render_shell(
                 request,
                 initial_view="support",
                 canonical_path="/support",
             ),
-            headers={
-                "Cache-Control": "no-store",
-                "X-Robots-Tag": "noindex, nofollow",
-            },
+            headers={"X-Robots-Tag": "noindex, nofollow"},
         )
 
     @app.get("/about", include_in_schema=False)
@@ -687,13 +767,13 @@ def create_app(
     async def about_page(request: Request) -> Response:
         # The one page search engines may index: it explains what this is
         # without exposing anyone's listening or a wallet address.
-        return HTMLResponse(
-            content=_render_shell(
+        return _page_response(
+            request,
+            _render_shell(
                 request,
                 initial_view="about",
                 canonical_path="/about",
             ),
-            headers={"Cache-Control": "no-store"},
         )
 
     def _current_public_stats_payload(request: Request | None = None) -> dict[str, Any]:
@@ -819,16 +899,14 @@ def create_app(
     async def plays_page(request: Request) -> Response:
         if not settings.public_plays:
             return _error(404, "not_found", "The public play feed is disabled")
-        return HTMLResponse(
-            content=_render_shell(
+        return _page_response(
+            request,
+            _render_shell(
                 request,
                 initial_view="plays",
                 canonical_path="/plays",
             ),
-            headers={
-                "Cache-Control": "no-store",
-                "X-Robots-Tag": "noindex, nofollow",
-            },
+            headers={"X-Robots-Tag": "noindex, nofollow"},
         )
 
     @app.get("/api/support", include_in_schema=False)
@@ -980,8 +1058,13 @@ def create_app(
         return _error(401, "unauthorized", "Invalid Vault Password")
 
     async def vault_page_handler(request: Request) -> Response:
+        nonce = secrets.token_urlsafe(16)
+        request.state.csp_nonce = nonce
         return HTMLResponse(
-            content=render_admin_vault_html(path_secret=bool(settings.addon_path_secret)),
+            content=render_admin_vault_html(
+                path_secret=bool(settings.addon_path_secret),
+                script_nonce=nonce,
+            ),
             headers={
                 "Cache-Control": "no-store",
                 "X-Robots-Tag": "noindex, nofollow",

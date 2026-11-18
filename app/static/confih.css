@@ -2209,3 +2209,38 @@ body.modal-open {
     transition: color var(--t-fast) var(--ease);
   }
 }
+
+/* ── Phone rendering budget ───────────────────────────────────────────────
+   Three things cost a mid-range phone far more than they cost a desktop:
+   a backdrop blur behind every panel (recomputed whenever anything behind it
+   moves), a 50px blur on a full-width wash, and per-frame dashes on a filtered
+   beam glow. None of them carry information, so on a narrow or coarse-pointer
+   screen they go: flat panels on the page colour, the wash becomes a plain
+   gradient, and the beam keeps its core stroke without the blurred twin. */
+@media (max-width: 900px), (pointer: coarse) {
+  *,
+  *::before,
+  *::after {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .site-head {
+    background: var(--page);
+  }
+
+  .telemetry-ambient {
+    filter: none !important;
+    opacity: 0.55 !important;
+  }
+
+  .rack-beam-glow,
+  [data-beam-glow],
+  .hero-stage-glow {
+    display: none !important;
+  }
+
+  .arch-plate::after {
+    animation: none !important;
+  }
+}

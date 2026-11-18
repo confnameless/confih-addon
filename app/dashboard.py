@@ -401,7 +401,7 @@ APP_SHELL_HTML = r"""<!DOCTYPE html>
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:image" content="{{origin}}/assets/og-card.png?v={{v}}" />
 
-  <script>
+  <script nonce="{{nonce}}">
     (function () {
       document.documentElement.setAttribute('data-theme', 'dark');
       document.documentElement.classList.add('has-js');
@@ -1615,6 +1615,7 @@ _PLAYS_SECTION_HTML = r"""      <!-- ── View 2: Plays ───────�
 
 def render_app_shell(
     *,
+    script_nonce: str = "",
     initial_view: str = "status",
     public_url: str = "https://bitchord.confih.tech",
     addon_name: str = "Confih Hi-Res",
@@ -1819,9 +1820,13 @@ def render_app_shell(
             if public_plays
             else ""
         ),
+        # The plays bundle is only needed by the plays view. Serving it on the
+        # first paint of status/about/support made every visitor download and
+        # parse 40 KB for a panel most of them never open, so it is fetched on
+        # intent (hover or focus on the nav item) and injected on the click.
         "{{plays_script}}": (
-            f'<script src="/assets/plays.js?v={ASSET_VERSION}" defer></script>'
-            if public_plays
+            f'<script src="/assets/plays.js?v={ASSET_VERSION}" data-confih-bundle="plays" defer></script>'
+            if (public_plays and active_view == "plays")
             else ""
         ),
         "{{status_hidden}}": "" if active_view == "status" else " hidden",
@@ -1832,6 +1837,7 @@ def render_app_shell(
         "{{contact_lead}}": contact_lead,
         "{{abuse_line}}": abuse_line,
         "{{boot_json}}": _safe_json_script(boot_payload),
+        "{{nonce}}": html.escape(script_nonce, quote=True),
     }
 
     token_re = re.compile("|".join(re.escape(token) for token in replacements))
@@ -1849,7 +1855,7 @@ _ADMIN_VAULT_TEMPLATE = r"""<!DOCTYPE html>
   <link rel="preload" as="font" type="font/woff2" crossorigin href="/assets/fonts/inter-latin.woff2?v={{v}}" />
   <link rel="icon" href="/assets/confih-mark.svg?v={{v}}" type="image/svg+xml" />
 
-  <script>
+  <script nonce="{{nonce}}">
     (function () {
       document.documentElement.setAttribute('data-theme', 'dark');
       document.documentElement.classList.add('has-js');
@@ -2124,13 +2130,18 @@ def _asset_version(static_dir: Path | None = None) -> str:
 ASSET_VERSION = _asset_version()
 
 
-def _stamp(markup: str) -> str:
-    return markup.replace("{{v}}", ASSET_VERSION)
+def _stamp(markup: str, script_nonce: str = "") -> str:
+    return markup.replace("{{v}}", ASSET_VERSION).replace(
+        "{{nonce}}", html.escape(script_nonce, quote=True)
+    )
 
 
-def render_admin_vault_html(*, path_secret: bool = False) -> str:
+def render_admin_vault_html(*, path_secret: bool = False, script_nonce: str = "") -> str:
     home_href = "/status" if path_secret else "/"
-    return _stamp(_ADMIN_VAULT_TEMPLATE).replace("{{home_href}}", home_href)
+    return (
+        _stamp(_ADMIN_VAULT_TEMPLATE, script_nonce)
+        .replace("{{home_href}}", home_href)
+    )
 
 
 ADMIN_VAULT_HTML = render_admin_vault_html()

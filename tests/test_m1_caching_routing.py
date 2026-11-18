@@ -51,14 +51,14 @@ def test_asset_version_hashes_extended_types_deterministically(tmp_path: Path) -
 async def test_assets_cache_control_headers(http: httpx.AsyncClient) -> None:
     ok_resp = await http.get("/assets/confih.css")
     assert ok_resp.status_code == 200
-    assert (
-        ok_resp.headers["cache-control"]
-        == "public, max-age=300, stale-while-revalidate=86400"
-    )
+    # Asset URLs carry ?v=<content hash>, so they may be cached forever: a
+    # deploy changes the URL rather than the meaning of an old one.
+    assert ok_resp.headers["cache-control"] == "public, max-age=31536000, immutable"
 
     missing_resp = await http.get("/assets/does-not-exist.js")
     assert missing_resp.status_code == 404
-    assert "max-age=300" not in missing_resp.headers.get("cache-control", "")
+    assert "immutable" not in missing_resp.headers.get("cache-control", "")
+    assert missing_resp.headers["cache-control"] == "no-store"
 
 
 @pytest.mark.asyncio

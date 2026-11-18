@@ -716,6 +716,53 @@
     }
   })();
 
+  /* ── 3b. View bundles ─────────────────────────────────────────────────
+     plays.js is 40 KB that only the plays view runs. It is prefetched at idle
+     everywhere else and injected the first time the view is opened, so the
+     first paint of every other page never pays for it. */
+  (function viewBundles() {
+    var loaded = {};
+
+    function bootField(name) {
+      var el = document.getElementById('confih-boot');
+      if (!el || !el.textContent) return '';
+      try {
+        var boot = JSON.parse(el.textContent);
+        return boot && boot[name] ? String(boot[name]) : '';
+      } catch (e) {
+        return '';
+      }
+    }
+
+    function ensure(bundle) {
+      if (loaded[bundle] || document.querySelector('script[data-confih-bundle="' + bundle + '"]')) {
+        return;
+      }
+      loaded[bundle] = true;
+      var script = document.createElement('script');
+      var version = bootField('asset_version');
+      script.src = '/assets/' + bundle + '.js' + (version ? '?v=' + version : '');
+      script.setAttribute('data-confih-bundle', bundle);
+      script.defer = true;
+      document.head.appendChild(script);
+    }
+
+    document.addEventListener('confih:viewchange', function (ev) {
+      var view = ev && ev.detail && ev.detail.view;
+      if (view === 'plays') ensure('plays');
+    });
+
+    /* Ask for the bundle the moment a visitor shows intent, not before: a
+       hover or a focus on Plays is a reliable bet, and the click then lands
+       on a panel whose data is already in flight. */
+    var intent = document.querySelector('.site-nav a[data-nav-view="plays"]');
+    if (intent) {
+      ['pointerenter', 'focus', 'touchstart'].forEach(function (type) {
+        intent.addEventListener(type, function () { ensure('plays'); }, { passive: true });
+      });
+    }
+  })();
+
   /* ── 4. Magnetic buttons (yields on press for crisp 3D keycap detent) ─── */
   (function magnetic() {
     if (!finePointer.matches) return;

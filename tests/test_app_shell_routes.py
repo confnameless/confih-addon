@@ -28,6 +28,7 @@ class _ShellInspector(HTMLParser):
         self.sections: dict[str, dict[str, str | None]] = {}
         self.covers_block_attrs: dict[str, str | None] = {}
         self.boot_text = ""
+        self.inline_script_nonces: list[str] = []
         self._in_nav = False
         self._in_boot = False
 
@@ -56,6 +57,9 @@ class _ShellInspector(HTMLParser):
             self.covers_block_attrs = attr_map
         elif tag == "script" and attr_map.get("id") == "confih-boot":
             self._in_boot = True
+        elif tag == "script" and not attr_map.get("src"):
+            # Inline boot script: it must present the nonce the CSP names.
+            self.inline_script_nonces.append(attr_map.get("nonce") or "")
 
     def handle_endtag(self, tag: str) -> None:
         if tag == "nav":
@@ -152,7 +156,6 @@ async def test_unified_shell_renders_all_six_public_routes(tmp_path: Path) -> No
                     "spatial-gl.js",
                     "router.js",
                     "monitor.js",
-                    "plays.js",
                     "support.js",
                     "confih-mark.svg",
                     "confih-logo.svg",
@@ -160,6 +163,23 @@ async def test_unified_shell_renders_all_six_public_routes(tmp_path: Path) -> No
                     "inter-latin.woff2",
                 ):
                     assert f"{asset}?v={ASSET_VERSION}" in resp.text, (path, asset)
+
+                # The plays bundle is fetched on intent, never on first paint,
+                # unless the page *is* the plays view.
+                plays_bundle = f"plays.js?v={ASSET_VERSION}"
+                if active_view == "plays":
+                    assert plays_bundle in resp.text, path
+                else:
+                    assert plays_bundle not in resp.text, path
+
+                # Every inline script must carry the nonce the CSP names,
+                # because script-src no longer allows 'unsafe-inline'.
+                nonce = parsed.inline_script_nonces
+                assert nonce, path
+                assert len(set(nonce)) == 1, path
+                script_src = csp.split("script-src", 1)[1].split(";", 1)[0]
+                assert f"'nonce-{nonce[0]}'" in script_src, (path, script_src)
+                assert "'unsafe-inline'" not in script_src, (path, script_src)
 
 
 @pytest.mark.asyncio

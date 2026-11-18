@@ -53,8 +53,10 @@
     reducedMotion: !!reduceMedia.matches,
     finePointer: !!fineMedia.matches,
     running: false,
+    offscreen: false,
     framesRendered: 0,
     rafId: 0,
+    frameBudgetMs: 0,
     lastFrameMs: 0,
     flowClockMs: 0,
     selectedNode: null,
@@ -123,8 +125,34 @@
     return 'status';
   }
 
+  /* The beam loop only has something to draw when a rack is on screen. On a
+     phone the status rack starts below the fold, so without this the page
+     animates nine SVG paths a second for a reader looking at the headline. */
+  var stageVisibility = new Map();
+  var stageObserver =
+    typeof window.IntersectionObserver === 'function'
+      ? new window.IntersectionObserver(
+          function (entries) {
+            entries.forEach(function (entry) {
+              stageVisibility.set(entry.target, entry.isIntersecting);
+            });
+            var visible = false;
+            stageVisibility.forEach(function (isVisible) {
+              if (isVisible) visible = true;
+            });
+            state.offscreen = !visible;
+            if (state.offscreen) {
+              stopRaf();
+            } else {
+              ensureRaf();
+            }
+          },
+          { rootMargin: '0px 0px' }
+        )
+      : null;
+
   function canRunLoop() {
-    return !state.reducedMotion && !document.hidden;
+    return !state.reducedMotion && !document.hidden && !state.offscreen;
   }
 
   function canPointerTilt() {
@@ -214,6 +242,51 @@
     return 'M ' + mx.toFixed(2) + ' ' + y0.toFixed(2) + lap + lap;
   }
 
+  /* ── Path sampling, cached ────────────────────────────────────────────────
+     getPointAtLength() re-walks the path every call. Asking it for three
+     points per node and two per bus, sixty times a second, spent more main
+     thread than every animation on the page combined — and a phone has far
+     less to spend. Sample each path once into a flat table, then interpolate:
+     the geometry only changes when the rack is re-measured. */
+  var LUT_STEPS = 128;
+  var lutCache = new WeakMap();
+  var pointOut = { x: 0, y: 0 };
+
+  function lutFor(pathEl, length) {
+    var entry = lutCache.get(pathEl);
+    if (entry && Math.abs(entry.len - length) < 0.5) return entry;
+    var n = LUT_STEPS;
+    var pts = new Float32Array((n + 1) * 2);
+    for (var i = 0; i <= n; i += 1) {
+      var pt = pathEl.getPointAtLength((i / n) * length);
+      pts[i * 2] = pt.x;
+      pts[i * 2 + 1] = pt.y;
+    }
+    entry = { len: length, n: n, pts: pts };
+    lutCache.set(pathEl, entry);
+    return entry;
+  }
+
+  function pointAtFraction(pathEl, length, frac, out) {
+    var target = out || pointOut;
+    if (!(length > 0)) {
+      target.x = 0;
+      target.y = 0;
+      return target;
+    }
+    var lut = lutFor(pathEl, length);
+    var pos = clamp(frac, 0, 1) * lut.n;
+    var i0 = Math.min(lut.n - 1, Math.floor(pos));
+    var k = pos - i0;
+    var x0 = lut.pts[i0 * 2];
+    var y0 = lut.pts[i0 * 2 + 1];
+    var x1 = lut.pts[(i0 + 1) * 2];
+    var y1 = lut.pts[(i0 + 1) * 2 + 1];
+    target.x = x0 + (x1 - x0) * k;
+    target.y = y0 + (y1 - y0) * k;
+    return target;
+  }
+
   function syncNodePerimeter(node, force) {
     if (!node || !node.el || !node.core || !node.svg) return;
     /* Reading offsetWidth is a forced layout; doing it for every node on every
@@ -234,6 +307,8 @@
     node.svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
     var d = buildDoubleLoopPath(w, h, r);
     node.core.setAttribute('d', d);
+    lutCache.delete(node.core);
+    if (node.glow) lutCache.delete(node.glow);
     if (node.glow) node.glow.setAttribute('d', d);
     try {
       node.totalLen = typeof node.core.getTotalLength === 'function' ? node.core.getTotalLength() : 0;
@@ -301,6 +376,14 @@
     state.stages.info.windowEl = infoWin;
     state.stages.info.stackEl = infoStack;
     if (infoWin) bindStageOrbit(infoWin, state.stages.info);
+
+    if (stageObserver) {
+      [statusWin, infoWin].forEach(function (el) {
+        if (!el || stageVisibility.has(el)) return;
+        stageVisibility.set(el, false);
+        stageObserver.observe(el);
+      });
+    }
   }
 
   function targetStageAngles(stage) {
@@ -402,17 +485,17 @@
       node.glow.style.strokeDashoffset = doff;
     }
 
-    if (node.totalLen > 0 && typeof node.core.getPointAtLength === 'function') {
-      var tailFrac = clamp(segStart / 200, 0, 1);
-      var tipFrac = clamp(segEnd / 200, 0, 1);
-      var ptTail = node.core.getPointAtLength(tailFrac * node.totalLen);
-      var ptTip = node.core.getPointAtLength(tipFrac * node.totalLen);
+    if (node.totalLen > 0) {
+      var ptTail = pointAtFraction(node.core, node.totalLen, segStart / 200);
+      var tailX = ptTail.x;
+      var tailY = ptTail.y;
+      var ptTip = pointAtFraction(node.core, node.totalLen, segEnd / 200);
       if (node.grad) {
-        syncGradVectorAndTone(node.grad, t, ptTail.x, ptTail.y, ptTip.x, ptTip.y);
+        syncGradVectorAndTone(node.grad, t, tailX, tailY, ptTip.x, ptTip.y);
       }
       if (node.spark) {
         if (showSpark !== false && vPos >= minS && vPos <= maxS) {
-          var ptHead = node.core.getPointAtLength(clamp(vPos / 200, 0, 1) * node.totalLen);
+          var ptHead = pointAtFraction(node.core, node.totalLen, vPos / 200);
           var edgeVis = Math.min(1, segLen / 4.5);
           node.spark.setAttribute('cx', ptHead.x.toFixed(2));
           node.spark.setAttribute('cy', ptHead.y.toFixed(2));
@@ -476,14 +559,19 @@
     pulse.style.strokeDashoffset = (-segStart).toFixed(2);
     pulse.style.opacity = clamp(opacity, 0, 1).toFixed(3);
 
-    var totalLen = typeof pulse.getTotalLength === 'function' ? pulse.getTotalLength() : 0;
-    if (totalLen > 0 && typeof pulse.getPointAtLength === 'function') {
+    if (bus.totalLen === undefined) {
+      bus.totalLen = typeof pulse.getTotalLength === 'function' ? pulse.getTotalLength() : 0;
+    }
+    var totalLen = bus.totalLen;
+    if (totalLen > 0) {
       var tailS = isReturn ? segEnd : segStart;
       var tipS = isReturn ? segStart : segEnd;
-      var ptTail = pulse.getPointAtLength(clamp(tailS / 100, 0, 1) * totalLen);
-      var ptTip = pulse.getPointAtLength(clamp(tipS / 100, 0, 1) * totalLen);
+      var ptTail = pointAtFraction(pulse, totalLen, tailS / 100);
+      var tailX = ptTail.x;
+      var tailY = ptTail.y;
+      var ptTip = pointAtFraction(pulse, totalLen, tipS / 100);
       if (bus.grad) {
-        syncGradVectorAndTone(bus.grad, t, ptTail.x, ptTail.y, ptTip.x, ptTip.y);
+        syncGradVectorAndTone(bus.grad, t, tailX, tailY, ptTip.x, ptTip.y);
       }
       if (bead) {
         bead.classList.toggle('is-return', isReturn);
@@ -494,7 +582,7 @@
         }
         var inPortRange = !isReturn ? (headS >= 0 && headS <= span) : (headS >= 0 && headS <= 100);
         if (inPortRange) {
-          var ptHead = pulse.getPointAtLength(clamp(headS / 100, 0, 1) * totalLen);
+          var ptHead = pointAtFraction(pulse, totalLen, headS / 100);
           bead.setAttribute('cx', ptHead.x.toFixed(2));
           bead.setAttribute('cy', ptHead.y.toFixed(2));
           bead.style.opacity = clamp(opacity, 0, 1).toFixed(3);
@@ -977,6 +1065,15 @@
   /* ── 60fps Animation Frame Loop ──────────────────────────────────────── */
 
   function stepFrame(nowMs) {
+    if (state.frameBudgetMs > 0 && state.lastFrameMs) {
+      /* Phones pay for every frame twice (higher DPR, weaker GPU). The beam
+         clock is wall-time based, so running at 30fps changes the cost, not
+         the choreography. */
+      if (nowMs - state.lastFrameMs < state.frameBudgetMs - 1) {
+        state.rafId = window.requestAnimationFrame(stepFrame);
+        return;
+      }
+    }
     if (!canRunLoop()) {
       state.running = false;
       state.rafId = 0;
@@ -1475,9 +1572,16 @@
     updateData(null, plays);
   }
 
+  function frameBudgetForViewport() {
+    var narrow = window.innerWidth < 900;
+    var coarse = !!fineMedia.matches === false;
+    return narrow || coarse ? 1000 / 30 : 0;
+  }
+
   function syncCapabilities() {
     state.reducedMotion = !!reduceMedia.matches;
     state.finePointer = !!fineMedia.matches;
+    state.frameBudgetMs = frameBudgetForViewport();
     var legacyStage = document.getElementById('spatial-stage');
     if (legacyStage) {
       legacyStage.hidden = true;
@@ -1502,6 +1606,7 @@
 
     state.reducedMotion = !!reduceMedia.matches;
     state.finePointer = !!fineMedia.matches;
+    state.frameBudgetMs = frameBudgetForViewport();
 
     if (options && options.view) {
       state.activeView = normalizeView(options.view);
@@ -1616,6 +1721,7 @@
       reducedMotion: state.reducedMotion,
       finePointer: state.finePointer,
       running: state.running,
+      offscreen: state.offscreen,
       framesRendered: state.framesRendered,
       selectedNode: state.selectedNode,
       flowMode: state.flowMode,
