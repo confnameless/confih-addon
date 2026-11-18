@@ -1,0 +1,28 @@
+# Secrets and runtime state must not enter the build context.
+.env
+.env.*
+!.env.example
+data/
+cloudflared/
+*.token
+*.log
+
+# VPN configuration files contain private keys.
+*.wg.conf
+wg*.conf
+proton*.conf
+*.ovpn
+protonvpn/
+wireguard/
+
+# Local Python / test state
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.git/

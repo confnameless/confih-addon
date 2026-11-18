@@ -1,0 +1,424 @@
+/* ============================================================================
+   Confih — Spatial Bento Content Components (Plays, About & Support)
+   ========================================================================= */
+
+main {
+  padding-top: clamp(1.75rem, 1.25rem + 2vw, 3.25rem);
+}
+
+/* ── Page Hero ─────────────────────────────────────────────────────────── */
+
+.page-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.92fr);
+  gap: clamp(1.75rem, 1.2rem + 2.6vw, 3.5rem);
+  align-items: center;
+  padding-bottom: clamp(2.25rem, 1.75rem + 2.4vw, 3.75rem);
+}
+
+.page-hero h1 {
+  max-width: 16ch;
+  margin: 1rem 0 1.15rem;
+}
+
+.page-hero .lede {
+  max-width: 50ch;
+  font-size: clamp(1rem, 0.96rem + 0.28vw, 1.15rem);
+  line-height: 1.65;
+  color: var(--ink-2);
+}
+
+.hero-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+}
+
+.hero-plate {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 230px;
+  padding: 1.4rem;
+  background: var(--panel);
+  backdrop-filter: blur(20px) saturate(1.2);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-elevated);
+  overflow: hidden;
+}
+
+.hero-plate::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    80% 55% at 50% 0%,
+    rgba(255, 255, 255, 0.035),
+    transparent 68%
+  );
+  pointer-events: none;
+}
+
+/* ── Section Blocks ────────────────────────────────────────────────────── */
+
+.block {
+  padding-block: clamp(2rem, 1.5rem + 2vw, 3.25rem);
+}
+
+.block + .block {
+  border-top: 1px solid var(--edge);
+}
+
+.block-head {
+  margin-bottom: clamp(1.35rem, 1.1rem + 1.1vw, 2rem);
+}
+
+.block-head h2 {
+  margin: 0.45rem 0 0.55rem;
+  font-size: var(--t-h2);
+}
+
+.block-head p {
+  max-width: 58ch;
+  font-size: var(--t-body);
+  line-height: 1.65;
+  color: var(--ink-2);
+}
+
+/* ── 3D Bento Step Cards (Replaces Flat Hairline Grids) ────────────────── */
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(236px, 1fr));
+  gap: 1.15rem;
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  padding: 1.65rem 1.5rem;
+  background: var(--panel);
+  backdrop-filter: blur(18px);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.step:hover {
+  border-color: var(--edge-2);
+}
+
+.step-index {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  padding: 0.22rem 0.62rem;
+  margin-bottom: 1rem;
+  border-radius: var(--r-sm);
+  background: var(--inset);
+  border: 1px solid var(--edge);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 580;
+  color: var(--ink-2);
+}
+
+.step h3 {
+  margin-bottom: 0.5rem;
+  font-size: 1.125rem;
+}
+
+.step p {
+  font-size: var(--t-small);
+  line-height: 1.65;
+  color: var(--ink-2);
+}
+
+/* ── Two-Column Editorial + Bento Callouts ─────────────────────────────── */
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: clamp(1.5rem, 1.1rem + 2.2vw, 3.25rem);
+  align-items: start;
+}
+
+.prose {
+  max-width: 60ch;
+}
+
+.prose p {
+  margin-bottom: 1.1rem;
+  font-size: var(--t-body);
+  line-height: 1.72;
+  color: var(--ink-2);
+}
+
+.prose p:last-child {
+  margin-bottom: 0;
+}
+
+.prose strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.note-plate {
+  padding: 1.5rem 1.6rem;
+  background: var(--panel);
+  backdrop-filter: blur(18px);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.note-plate h3 {
+  margin-bottom: 0.55rem;
+  font-size: 0.95rem;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.note-plate p {
+  margin-bottom: 0.85rem;
+  font-size: var(--t-small);
+  line-height: 1.68;
+  color: var(--ink-2);
+}
+
+.note-plate p:last-child {
+  margin-bottom: 0;
+}
+
+/* ── Definition Bento Cards ────────────────────────────────────────────── */
+
+.defs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+}
+
+.def {
+  padding: 1.4rem 1.5rem;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.def dt {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.925rem;
+  font-weight: 640;
+  color: var(--ink);
+}
+
+.def dt::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--signal);
+  box-shadow: 0 0 8px var(--signal);
+}
+
+.def dd {
+  margin: 0;
+  font-size: var(--t-small);
+  line-height: 1.65;
+  color: var(--ink-2);
+}
+
+/* ── Interactive 3D Link Cards ─────────────────────────────────────────── */
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.15rem;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 1.6rem 1.55rem;
+  background: var(--panel);
+  backdrop-filter: blur(18px);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.card:hover {
+  border-color: var(--edge-3);
+}
+
+.card h3 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 1.04rem;
+}
+
+.card h3 .arrow {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-sm);
+  background: var(--inset);
+  border: 1px solid var(--edge);
+  color: var(--ink-2);
+  font-size: 0.85rem;
+  transition: transform 0.2s var(--spring), background-color 0.18s var(--ease),
+    color 0.18s var(--ease);
+}
+
+.card:hover h3 .arrow {
+  transform: translate(2px, -2px);
+  background: var(--ink);
+  color: var(--page);
+}
+
+.card p {
+  font-size: var(--t-small);
+  line-height: 1.65;
+  color: var(--ink-2);
+}
+
+.card-link {
+  color: inherit;
+}
+
+.card-link:hover {
+  text-decoration: none;
+}
+
+/* ── Sculpted Pill Capabilities ────────────────────────────────────────── */
+
+.stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.stack li {
+  padding: 0.5rem 0.9rem;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-sm);
+  box-shadow: 0 1px 0 var(--rim-top) inset;
+  font-size: 0.83rem;
+  font-weight: 540;
+  color: var(--ink-2);
+}
+
+/* ── Rounded Glass FAQ Accordions ──────────────────────────────────────── */
+
+.faq {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.faq-item {
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: var(--r);
+  box-shadow: 0 1px 0 var(--rim-top) inset;
+  overflow: hidden;
+  transition: border-color 0.2s var(--ease);
+}
+
+.faq-item[open] {
+  border-color: var(--edge-2);
+}
+
+.faq-item > summary {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  padding: 1.15rem 1.35rem;
+  list-style: none;
+  cursor: pointer;
+  font-size: 0.96rem;
+  font-weight: 600;
+  color: var(--ink);
+  user-select: none;
+}
+
+.faq-item > summary::-webkit-details-marker {
+  display: none;
+}
+
+.faq-item > summary:hover {
+  color: var(--signal);
+}
+
+.faq-item > summary::after {
+  content: "";
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--inset);
+  border: 1px solid var(--edge-2);
+  transition: border-color 0.2s var(--ease), background-color 0.2s var(--ease);
+}
+
+.faq-item > summary::before {
+  content: "";
+  position: absolute;
+  right: calc(1.35rem + 10px);
+  top: 50%;
+  z-index: 1;
+  width: 7px;
+  height: 7px;
+  border-right: 1.7px solid var(--ink-2);
+  border-bottom: 1.7px solid var(--ink-2);
+  transform: translateY(-62%) rotate(45deg);
+  transition: transform 0.28s var(--spring), border-color 0.2s var(--ease);
+  pointer-events: none;
+}
+
+.faq-item[open] > summary::before {
+  transform: translateY(-34%) rotate(-135deg);
+  border-color: var(--signal);
+}
+
+.faq-item[open] > summary::after {
+  border-color: var(--signal-line);
+  background: var(--signal-soft);
+}
+
+.faq-body {
+  padding: 0 1.35rem 1.25rem;
+  max-width: 64ch;
+  font-size: var(--t-small);
+  line-height: 1.7;
+  color: var(--ink-2);
+}
+
+.cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+@media (max-width: 900px) {
+  .page-hero,
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.75rem;
+  }
+}

@@ -1,0 +1,96 @@
+# Live Cloudflare Tunnel path for a private / NATed server.
+#
+# Start the complete live stack (vpn + addon + tunnel, no Caddy):
+#
+#   docker compose -f docker-compose.vpn.yml -f docker-compose.tunnel.yml \
+#     up -d --build
+#
+# This published copy is redacted: the live test host keeps its real path secret
+# (and tunnel credentials) in its own copy on the server. Do not copy this file
+# over the server's copy.
+#
+# The tunnel container connects to http://addon:8000 over the Compose network.
+# It does not use Caddy and does not publish 80/443. Cloudflare terminates TLS;
+# the addon sends HSTS when it sees X-Forwarded-Proto: https.
+#
+# Prerequisites on the host:
+#   - cloudflared/config.yml with `service: http://addon:8000`
+#   - cloudflared/<tunnel-id>.json, mode 400
+#   - CLOUDFLARED_UID/CLOUDFLARED_GID in .env matching the file owner
+#
+# The whole cloudflared/ directory is a secret: it is ignored by git, rsync and
+# the Docker build context. Do not commit it or copy it into an image.
+
+services:
+  addon:
+    ports:
+      # Localhost only. The tunnel container uses the Compose network; this
+      # mapping is for local debugging and host-side tools. Nothing is exposed
+      # directly to the internet.
+      - "127.0.0.1:8000:8000"
+
+  addon-test:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8001:8000"
+    networks:
+      - addon
+    depends_on:
+      vpn:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /data
+      TRUST_PROXY_HEADERS: "true"
+      QOBUZ_PROXY_URL: "http://vpn:8888"
+      PUBLIC_BASE_URL: "https://test-bitchord.confih.tech"
+      ADDON_HOSTS: "test-bitchord.confih.tech"
+      ADDON_AUTH_ENABLED: "false"
+      CHECK_VALID_LOSSLESS: "0"
+      ADDON_NAME: "Confih Hi-Res Test"
+      ADDON_ID: "app.bitchord.confih.test"
+      # Redacted in the published copy of this file.
+      ADDON_PATH_SECRET: "${ADDON_TEST_PATH_SECRET:-}"
+      # No demo data on the test host: it reflects real usage only.
+      DONATE_DEMO: "false"
+      # Real donation addresses for the test host (same wallet as production).
+      DONATE_BTC: "bc1qwjuu4j35wuj95l0t6y676us55tf238jrrvg0ts"
+      DONATE_SOL: "BiqDpAFGfkbnS2UqqnrSE19rGSZZGfTjoTWe1uvL1PV5"
+      DONATE_POLYGON: "0x876cF516c35802aa3A6d09d72Ac466F01D10C51e"
+    # Its own volume: seeding test plays here can never touch the production
+    # ledger, and two processes stop rewriting the same plays.json.
+    volumes:
+      - addon_test_data:/data
+    healthcheck:
+      test: ["CMD", "python", "scripts/healthcheck.py"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    # The image defaults to uid 65532; run as the host account that owns the
+    # mode-400 credentials so the connector can read them. Set
+    # CLOUDFLARED_UID/CLOUDFLARED_GID in .env; the Oracle ubuntu user is 1001.
+    user: "${CLOUDFLARED_UID:-1000}:${CLOUDFLARED_GID:-1000}"
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    volumes:
+      - ./cloudflared:/etc/cloudflared:ro
+    depends_on:
+      addon:
+        condition: service_healthy
+      addon-test:
+        condition: service_healthy
+    networks:
+      - addon
+
+volumes:
+  addon_test_data:

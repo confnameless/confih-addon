@@ -1,0 +1,213 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="38 38 302 284" width="302" height="284" fill="none" role="img" aria-label="Confih">
+  <defs>
+    <!-- Subtle Crimson Ambient Glow -->
+    <filter id="musicAmbientGlow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#FA233B" flood-opacity="0.24" />
+    </filter>
+
+    <!-- Crimson Liquid Glass Frame Gradient -->
+    <linearGradient id="appleMusicGlass" x1="55" y1="45" x2="295" y2="315" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF8FA3" stop-opacity="0.96" />
+      <stop offset="28%" stop-color="#FA233B" stop-opacity="0.92" />
+      <stop offset="68%" stop-color="#BE123C" stop-opacity="0.94" />
+      <stop offset="100%" stop-color="#4C0519" stop-opacity="0.98" />
+    </linearGradient>
+
+    <!-- Liquid Glass Internal Specular Refraction (Headband) -->
+    <linearGradient id="glassRefraction" x1="65" y1="60" x2="240" y2="290" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.52" />
+      <stop offset="32%" stop-color="#FDA4AF" stop-opacity="0.18" />
+      <stop offset="68%" stop-color="#FA233B" stop-opacity="0.05" />
+      <stop offset="100%" stop-color="#FF4D6D" stop-opacity="0.28" />
+    </linearGradient>
+
+    <!-- Static Specular Sheen (Headband & Cups) -->
+    <linearGradient id="liquidShimmer" x1="90" y1="70" x2="250" y2="230" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0" />
+      <stop offset="44%" stop-color="#FFE4E6" stop-opacity="0.06" />
+      <stop offset="50%" stop-color="#FFFFFF" stop-opacity="0.26" />
+      <stop offset="56%" stop-color="#FDA4AF" stop-opacity="0.06" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0" />
+    </linearGradient>
+
+    <!-- Top Earcup Liquid Ruby Glass Dome -->
+    <linearGradient id="rubyGlassTop" x1="0" y1="-22" x2="0" y2="2" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFC2D1" stop-opacity="0.98" />
+      <stop offset="18%" stop-color="#FA233B" stop-opacity="0.92" />
+      <stop offset="66%" stop-color="#9F1239" stop-opacity="0.94" />
+      <stop offset="88%" stop-color="#4C0519" stop-opacity="0.97" />
+      <stop offset="100%" stop-color="#E11D48" stop-opacity="0.92" />
+    </linearGradient>
+
+    <!-- Bottom Earcup Liquid Ruby Glass Dome -->
+    <linearGradient id="rubyGlassBot" x1="0" y1="-2" x2="0" y2="22" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#881337" stop-opacity="0.96" />
+      <stop offset="28%" stop-color="#BE123C" stop-opacity="0.93" />
+      <stop offset="72%" stop-color="#FA233B" stop-opacity="0.92" />
+      <stop offset="90%" stop-color="#FF758F" stop-opacity="0.95" />
+      <stop offset="100%" stop-color="#9F1239" stop-opacity="0.96" />
+    </linearGradient>
+
+    <!-- Glossy Liquid Glass Specular Overlay (Top Cup) -->
+    <linearGradient id="cupGlassHighlightTop" x1="-30" y1="-20" x2="30" y2="5" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.56" />
+      <stop offset="42%" stop-color="#FECDD3" stop-opacity="0.18" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0" />
+    </linearGradient>
+
+    <!-- Refracted Internal Caustic Overlay (Bottom Cup) -->
+    <linearGradient id="cupGlassHighlightBot" x1="-25" y1="20" x2="25" y2="-2" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFE4E6" stop-opacity="0.38" />
+      <stop offset="48%" stop-color="#FB7185" stop-opacity="0.14" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0" />
+    </linearGradient>
+
+    <!-- Polished Dark-Chrome Stainless Steel Rod -->
+    <linearGradient id="polishedSteel" x1="0" y1="-5" x2="0" y2="5" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#71717A" />
+      <stop offset="30%" stop-color="#FFF1F2" />
+      <stop offset="55%" stop-color="#D4D4D8" />
+      <stop offset="85%" stop-color="#27272A" />
+      <stop offset="100%" stop-color="#71717A" />
+    </linearGradient>
+
+    <!-- Smoked Titanium Gimbal & Collar Metallic Ring -->
+    <linearGradient id="steelRing" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFE4E6" />
+      <stop offset="48%" stop-color="#A1A1AA" />
+      <stop offset="100%" stop-color="#27272A" />
+    </linearGradient>
+
+    <!-- Dark-Theme Obsidian Knit-Mesh Ear Cushion Shading -->
+    <linearGradient id="knitCushionTop" x1="0" y1="0" x2="0" y2="24" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#09090B" />
+      <stop offset="22%" stop-color="#27272A" />
+      <stop offset="65%" stop-color="#18181B" />
+      <stop offset="100%" stop-color="#0C0C0E" />
+    </linearGradient>
+
+    <linearGradient id="knitCushionBot" x1="0" y1="0" x2="0" y2="-24" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#09090B" />
+      <stop offset="22%" stop-color="#27272A" />
+      <stop offset="65%" stop-color="#18181B" />
+      <stop offset="100%" stop-color="#0C0C0E" />
+    </linearGradient>
+
+    <!-- Smoked Ruby Breathable Canopy Knit-Mesh Pattern -->
+    <pattern id="canopyMesh" width="4.5" height="4.5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="4.5" height="4.5" fill="#14070B" fill-opacity="0.72" />
+      <path d="M 0 2.25 L 4.5 2.25 M 2.25 0 L 2.25 4.5" stroke="#FDA4AF" stroke-width="0.6" stroke-opacity="0.34" />
+      <circle cx="2.25" cy="2.25" r="0.65" fill="#050203" fill-opacity="0.75" />
+    </pattern>
+
+    <!-- Ear Cushion Micro-Textile Weave Pattern -->
+    <pattern id="earKnitWeave" width="3.5" height="3.5" patternUnits="userSpaceOnUse" patternTransform="rotate(30)">
+      <path d="M 0 1.75 L 3.5 1.75 M 1.75 0 L 1.75 3.5" stroke="#FFE4E6" stroke-width="0.45" stroke-opacity="0.065" />
+    </pattern>
+
+    <style>
+      .led-pulse {
+        animation: ledBreath 3.6s ease-in-out infinite;
+      }
+
+      @keyframes ledBreath {
+        0%, 100% {
+          opacity: 0.45;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .led-pulse {
+          animation: none;
+        }
+      }
+    </style>
+  </defs>
+
+  <g filter="url(#musicAmbientGlow)">
+    <!-- 1. SMOKED CANOPY & CRIMSON LIQUID-GLASS BAND ("C" SPINE) -->
+    <g id="headband-canopy">
+      <path d="M 91.8 101.01 A 114 114 0 0 0 91.8 258.99 A 154 154 0 0 1 91.8 101.01 Z" fill="url(#canopyMesh)" />
+      <path d="M 91.8 101.01 A 154 154 0 0 0 91.8 258.99" fill="none" stroke="#FB7185" stroke-width="1.15" stroke-linecap="round" opacity="0.6" />
+      <path d="M 247.81 70.57 A 132 132 0 1 0 247.81 289.43 L 237.75 274.51 A 114 114 0 1 1 237.75 85.49 Z" fill="url(#appleMusicGlass)" />
+      <path d="M 244.8 75.0 A 127 127 0 1 0 244.8 285.0 L 241.0 279.4 A 120 120 0 1 1 241.0 80.6 Z" fill="url(#glassRefraction)" />
+      <path d="M 247.81 70.57 A 132 132 0 1 0 247.81 289.43 L 237.75 274.51 A 114 114 0 1 1 237.75 85.49 Z" fill="url(#liquidShimmer)" />
+      <path d="M 246.1 73.1 A 129 129 0 1 0 246.1 286.9" fill="none" stroke="#FFE4E6" stroke-width="1.45" stroke-linecap="round" opacity="0.85" />
+      <path d="M 239.4 83.0 A 117 117 0 1 0 239.4 277.0" fill="none" stroke="#FDA4AF" stroke-width="1.05" opacity="0.55" />
+    </g>
+
+    <!-- 2. TOP TELESCOPING STAINLESS-STEEL ARM & SMOKED GLASS COLLAR -->
+    <g id="top-telescoping-arm">
+      <path d="M 246.5 80.5 L 261.02 90.33 C 266.2 93.8, 269.8 97.4, 272.32 101.41" fill="none" stroke="#18181B" stroke-width="8.4" stroke-linecap="round" />
+      <path d="M 246.5 80.5 L 261.02 90.33 C 266.2 93.8, 269.8 97.4, 272.32 101.41" fill="none" stroke="url(#polishedSteel)" stroke-width="6.4" stroke-linecap="round" />
+      <path d="M 247.2 79.3 L 261.6 89.0 C 266.6 92.4, 270.2 96.0, 272.7 100.1" fill="none" stroke="#FFFFFF" stroke-width="1.4" stroke-linecap="round" opacity="0.92" />
+      <g transform="translate(242.78, 78.03) rotate(34)">
+        <rect x="-2" y="-9.6" width="9.5" height="19.2" rx="3" fill="#14070B" stroke="#FDA4AF" stroke-opacity="0.2" stroke-width="0.6" />
+        <rect x="-1.5" y="-9.6" width="2.2" height="19.2" rx="1.1" fill="url(#steelRing)" />
+        <line x1="7.5" y1="-4.5" x2="7.5" y2="4.5" stroke="#FB7185" stroke-width="0.9" stroke-linecap="round" opacity="0.7" />
+      </g>
+    </g>
+
+    <!-- 3. TOP LIQUID-GLASS RUBY EARCUP -->
+    <g id="top-earcup" transform="translate(278, 122) rotate(42)">
+      <g transform="translate(15, -20.5)">
+        <rect x="-5.5" y="-3.6" width="11" height="4.2" rx="1.6" fill="url(#steelRing)" />
+        <line x1="-3.2" y1="-3.3" x2="-3.2" y2="0.2" stroke="#18181B" stroke-width="0.75" />
+        <line x1="-1.1" y1="-3.3" x2="-1.1" y2="0.2" stroke="#18181B" stroke-width="0.75" />
+        <line x1="1.1" y1="-3.3" x2="1.1" y2="0.2" stroke="#18181B" stroke-width="0.75" />
+        <line x1="3.2" y1="-3.3" x2="3.2" y2="0.2" stroke="#18181B" stroke-width="0.75" />
+        <rect x="-17" y="-1.8" width="8.5" height="2.4" rx="1.2" fill="url(#steelRing)" />
+      </g>
+      <path d="M -37 0 C -38 -12.5, -31 -21, -18 -21 L 18 -21 C 31 -21, 38 -12.5, 37 0 Z" fill="url(#rubyGlassTop)" />
+      <path d="M -33 -3 C -33.5 -12.5, -27.5 -18.8, -16.5 -18.8 L 16.5 -18.8 C 25.5 -18.8, 30.5 -14.5, 31.8 -8.5 C 18 -12.5, -14 -11.5, -33 -3 Z" fill="url(#cupGlassHighlightTop)" />
+      <path d="M -37 0 C -38 -12.5, -31 -21, -18 -21 L 18 -21 C 31 -21, 38 -12.5, 37 0 Z" fill="url(#liquidShimmer)" />
+      <path d="M -34.2 -3.5 C -34.2 -13.2, -28.2 -19.2, -17.5 -19.2 L 17.5 -19.2 C 28.2 -19.2, 34.2 -13.2, 34.2 -3.5" fill="none" stroke="#FFE4E6" stroke-width="1.4" stroke-linecap="round" opacity="0.9" />
+      <circle cx="-18" cy="-11.5" r="6.2" fill="#14070B" stroke="url(#steelRing)" stroke-width="1.5" />
+      <circle cx="-18" cy="-11.5" r="3.4" fill="url(#steelRing)" />
+      <circle cx="-18" cy="-11.5" r="1.4" fill="#18181B" />
+      <rect x="14" y="-5.2" width="7.5" height="2" rx="1" fill="#09090B" opacity="0.85" />
+      <line x1="-36.5" y1="0" x2="36.5" y2="0" stroke="#09090B" stroke-width="1.7" />
+      <line x1="-35.5" y1="1.2" x2="35.5" y2="1.2" stroke="#FDA4AF" stroke-width="0.75" opacity="0.55" />
+      <path d="M -36.5 1.2 C -39.5 8.5, -38.5 18.5, -32.5 22 C -28 24.4, -20 23.5, 0 23.5 C 20 23.5, 28 24.4, 32.5 22 C 38.5 18.5, 39.5 8.5, 36.5 1.2 Z" fill="url(#knitCushionTop)" stroke="#FDA4AF" stroke-opacity="0.18" stroke-width="0.75" />
+      <path d="M -36.5 1.2 C -39.5 8.5, -38.5 18.5, -32.5 22 C -28 24.4, -20 23.5, 0 23.5 C 20 23.5, 28 24.4, 32.5 22 C 38.5 18.5, 39.5 8.5, 36.5 1.2 Z" fill="url(#earKnitWeave)" />
+      <path d="M -33.5 4.5 C -35.2 10.5, -34.2 16.5, -29.5 19.2" fill="none" stroke="#A1A1AA" stroke-width="0.95" stroke-linecap="round" opacity="0.4" />
+      <path d="M -21 23.5 C -21 25.5, -18 26.5, 0 26.5 C 18 26.5, 21 25.5, 21 23.5 Z" fill="#050507" stroke="#FDA4AF" stroke-opacity="0.14" stroke-width="0.6" />
+    </g>
+
+    <!-- 4. BOTTOM TELESCOPING STAINLESS-STEEL ARM & SMOKED GLASS COLLAR -->
+    <g id="bottom-telescoping-arm">
+      <path d="M 246.5 279.5 L 261.02 269.67 C 266.2 266.2, 269.8 262.6, 272.32 258.59" fill="none" stroke="#18181B" stroke-width="8.4" stroke-linecap="round" />
+      <path d="M 246.5 279.5 L 261.02 269.67 C 266.2 266.2, 269.8 262.6, 272.32 258.59" fill="none" stroke="url(#polishedSteel)" stroke-width="6.4" stroke-linecap="round" />
+      <path d="M 247.2 280.7 L 261.6 271.0 C 266.6 267.6, 270.2 264.0, 272.7 259.9" fill="none" stroke="#FFFFFF" stroke-width="1.4" stroke-linecap="round" opacity="0.92" />
+      <g transform="translate(242.78, 281.97) rotate(-34)">
+        <rect x="-2" y="-9.6" width="9.5" height="19.2" rx="3" fill="#14070B" stroke="#FDA4AF" stroke-opacity="0.2" stroke-width="0.6" />
+        <rect x="-1.5" y="-9.6" width="2.2" height="19.2" rx="1.1" fill="url(#steelRing)" />
+        <line x1="7.5" y1="-4.5" x2="7.5" y2="4.5" stroke="#FB7185" stroke-width="0.9" stroke-linecap="round" opacity="0.7" />
+      </g>
+    </g>
+
+    <!-- 5. BOTTOM LIQUID-GLASS RUBY EARCUP -->
+    <g id="bottom-earcup" transform="translate(278, 238) rotate(-42)">
+      <g transform="translate(15, 20.5)">
+        <circle cx="0" cy="0.6" r="1.4" fill="#FF3B5C" class="led-pulse" />
+        <rect x="-16" y="-0.4" width="7.5" height="2" rx="1" fill="#09090B" opacity="0.85" />
+      </g>
+      <path d="M -37 0 C -38 12.5, -31 21, -18 21 L 18 21 C 31 21, 38 12.5, 37 0 Z" fill="url(#rubyGlassBot)" />
+      <path d="M -33 3 C -33.5 12.5, -27.5 18.8, -16.5 18.8 L 16.5 18.8 C 25.5 18.8, 30.5 14.5, 31.8 8.5 C 18 12.5, -14 11.5, -33 3 Z" fill="url(#cupGlassHighlightBot)" />
+      <path d="M -37 0 C -38 12.5, -31 21, -18 21 L 18 21 C 31 21, 38 12.5, 37 0 Z" fill="url(#liquidShimmer)" />
+      <path d="M -34.2 3.5 C -34.2 13.2, -28.2 19.2, -17.5 19.2 L 17.5 19.2 C 28.2 19.2, 34.2 13.2, 34.2 3.5" fill="none" stroke="#FFE4E6" stroke-width="1.35" stroke-linecap="round" opacity="0.78" />
+      <circle cx="-18" cy="11.5" r="6.2" fill="#14070B" stroke="url(#steelRing)" stroke-width="1.5" />
+      <circle cx="-18" cy="11.5" r="3.4" fill="url(#steelRing)" />
+      <circle cx="-18" cy="11.5" r="1.4" fill="#18181B" />
+      <line x1="-36.5" y1="0" x2="36.5" y2="0" stroke="#09090B" stroke-width="1.7" />
+      <line x1="-35.5" y1="-1.2" x2="35.5" y2="-1.2" stroke="#FDA4AF" stroke-width="0.75" opacity="0.55" />
+      <path d="M -36.5 -1.2 C -39.5 -8.5, -38.5 -18.5, -32.5 -22 C -28 -24.4, -20 -23.5, 0 -23.5 C 20 -23.5, 28 -24.4, 32.5 -22 C 38.5 -18.5, 39.5 -8.5, 36.5 -1.2 Z" fill="url(#knitCushionBot)" stroke="#FDA4AF" stroke-opacity="0.18" stroke-width="0.75" />
+      <path d="M -36.5 -1.2 C -39.5 -8.5, -38.5 -18.5, -32.5 -22 C -28 -24.4, -20 -23.5, 0 -23.5 C 20 -23.5, 28 -24.4, 32.5 -22 C 38.5 -18.5, 39.5 -8.5, 36.5 -1.2 Z" fill="url(#earKnitWeave)" />
+      <path d="M -33.5 -4.5 C -35.2 -10.5, -34.2 -16.5, -29.5 -19.2" fill="none" stroke="#A1A1AA" stroke-width="0.95" stroke-linecap="round" opacity="0.4" />
+      <path d="M -21 -23.5 C -21 -25.5, -18 -26.5, 0 -26.5 C 18 -26.5, 21 -25.5, 21 -23.5 Z" fill="#050507" stroke="#FDA4AF" stroke-opacity="0.14" stroke-width="0.6" />
+    </g>
+  </g>
+</svg>

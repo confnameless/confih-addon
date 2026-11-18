@@ -1,0 +1,1565 @@
+/* ============================================================================
+   Confih — /plays ("3D Vinyl & Lossless Listening Studio")
+   ----------------------------------------------------------------------------
+   3D angled jewel-sleeve with grooved vinyl platter, 4-card Bento summary
+   metrics, recessed 24-hour stacked quality meter, interactive tier filter
+   pills, and sculpted glass track & recent-play cards.
+   ========================================================================= */
+
+/* ── Hero Editorial Typography, Chips & 3D Spinning Vinyl Platter ──────── */
+
+#plays-headline {
+  background: linear-gradient(180deg, #ffffff 0%, #f4f4f5 52%, #a1a1aa 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  /* A background-clipped fill only paints inside the padding box, and the 1.04
+     line-height lets ascenders/descenders overhang it — which clipped the tops
+     of G and Y. Pad the paint area and pull the margins back so the page
+     rhythm is unchanged. */
+  padding-block: 0.14em;
+  margin-block: calc(1rem - 0.14em) calc(1.15rem - 0.14em);
+}
+
+#view-plays .hero-chips .chip {
+  gap: 0.42rem;
+  padding: 0.34rem 0.78rem;
+  border-radius: var(--r-pill);
+  background: rgba(14, 14, 18, 0.78);
+  border-color: var(--edge-2);
+  color: var(--ink-2);
+}
+
+#view-plays .hero-chips .chip svg {
+  flex: none;
+  color: var(--ink-3);
+}
+
+#view-plays .hero-chips .chip:nth-child(1) svg {
+  color: var(--cyan);
+}
+
+#view-plays .hero-chips .chip:nth-child(2) svg {
+  color: var(--gold);
+}
+
+#view-plays .hero-chips .chip:nth-child(3) svg {
+  color: var(--ok);
+}
+
+.telemetry-plate {
+  position: relative;
+  align-items: stretch;
+  overflow: hidden;
+}
+
+.telemetry-plate::before {
+  content: "";
+  position: absolute;
+  left: 14%;
+  right: 14%;
+  top: -1px;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(250, 35, 59, 0.58),
+    transparent
+  );
+}
+
+/* The sleeve art, blurred far past recognition, becomes the plate's own light
+   source. It sits under the content so nothing loses contrast, and falls back
+   to the delivered-quality colour when a track has no artwork. */
+.telemetry-ambient {
+  --ambient-tint: var(--ink-3);
+  position: absolute;
+  inset: -35%;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.72;
+  filter: blur(50px) saturate(2) brightness(0.82);
+  /* Masked to a halo behind the sleeve so the wash never lifts the whole
+     panel: text on the right keeps its contrast. */
+  -webkit-mask-image: radial-gradient(
+    58% 80% at 22% 50%,
+    #000 0%,
+    rgba(0, 0, 0, 0.6) 45%,
+    transparent 76%
+  );
+  mask-image: radial-gradient(
+    58% 80% at 22% 50%,
+    #000 0%,
+    rgba(0, 0, 0, 0.6) 45%,
+    transparent 76%
+  );
+}
+
+.telemetry-ambient[data-art="0"] {
+  background: radial-gradient(
+    58% 72% at 24% 46%,
+    color-mix(in srgb, var(--ambient-tint) 62%, transparent),
+    transparent 72%
+  );
+}
+
+.telemetry-ambient[data-tier="dolby_atmos"] {
+  --ambient-tint: var(--signal-2);
+}
+
+.telemetry-ambient[data-tier="hires_24bit"] {
+  --ambient-tint: var(--gold);
+}
+
+.telemetry-ambient[data-tier="lossless_16bit"] {
+  --ambient-tint: var(--cyan);
+}
+
+.telemetry-ambient > i {
+  position: absolute;
+  inset: 0;
+  background-position: center;
+  background-size: cover;
+  opacity: 0;
+  transition: opacity 0.6s var(--ease);
+}
+
+.telemetry-ambient > i.is-on {
+  opacity: 1;
+}
+
+.telemetry-box {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 1.35rem;
+  min-width: 0;
+}
+
+.telemetry-top,
+.telemetry-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.74rem;
+  font-weight: 620;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.telemetry-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.48rem;
+  min-width: 0;
+}
+
+.telemetry-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-4);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14);
+  flex: none;
+}
+
+.telemetry-plate.is-live-now .telemetry-live-dot {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18), 0 0 10px rgba(52, 211, 153, 0.55);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .telemetry-plate.is-live-now .telemetry-live-dot {
+    position: relative;
+  }
+  .telemetry-plate.is-live-now .telemetry-live-dot::after {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border-radius: 50%;
+    border: 1px solid color-mix(in srgb, var(--ok) 60%, transparent);
+    animation: confih-live-ping 2.4s var(--ease) infinite;
+  }
+}
+
+@keyframes confih-live-ping {
+  from {
+    transform: scale(0.7);
+    opacity: 0.8;
+  }
+  70%,
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+
+.telemetry-head-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
+}
+
+.telemetry-foot {
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--edge);
+}
+
+.telemetry-tally {
+  font-family: var(--mono);
+  font-size: 0.73rem;
+  font-weight: 540;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.telemetry-foot-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.telemetry-spark {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 16px;
+  padding: 2px 0;
+}
+
+.telemetry-spark:empty {
+  display: none;
+}
+
+.telemetry-spark > i {
+  display: block;
+  width: 2.5px;
+  min-height: 2px;
+  border-radius: 1.5px;
+  background: color-mix(in srgb, var(--ink-2) 62%, transparent);
+}
+
+.telemetry-spark > i.is-peak {
+  background: var(--gold);
+}
+
+/* The relative-time chip is bare type on purpose: the plate already carries an
+   ambient wash, so a filled pill reads as a box sitting on top of it. */
+#telemetry-mode {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: var(--mono);
+  font-size: 0.71rem;
+  font-weight: 580;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  color: var(--ink-2);
+}
+
+.telemetry-plate.is-live-now #telemetry-mode {
+  color: var(--ok);
+}
+
+.telemetry-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.12rem;
+  border-radius: var(--r-pill);
+  background: var(--inset);
+  border: 1px solid var(--edge-2);
+}
+
+.telemetry-stepper[hidden] {
+  display: none !important;
+}
+
+.telemetry-step-btn {
+  display: inline-grid;
+  place-items: center;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 0.92rem;
+  font-weight: 650;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.16s var(--ease), color 0.16s var(--ease);
+}
+
+.telemetry-step-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink);
+}
+
+.telemetry-step-count {
+  padding: 0 0.32rem;
+  font-family: var(--mono);
+  font-size: 0.67rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+#telemetry-peak {
+  font-family: var(--mono);
+  font-size: 0.77rem;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.telemetry-track {
+  display: flex;
+  align-items: center;
+  gap: 1.55rem;
+  padding: 0.25rem 0;
+  min-width: 0;
+}
+
+/* Crisp Zero-Blur Gatefold Sleeve + Exposed Optical/Vinyl Platter */
+/* Three knobs, all relative to the sleeve edge (--sleeve):
+     --disc-scale   how much smaller the record is than its sleeve
+     --disc-out     how much of it shows at rest (0.5 = half tucked away)
+     --disc-out-hover  how much shows when the plate is hovered            */
+.sleeve-3d-plinth {
+  --sleeve: 138px;
+  --disc-scale: 0.86;
+  --disc-out: 0.5;
+  --disc-out-hover: 0.7;
+  position: relative;
+  flex: none;
+  width: calc(var(--sleeve) + 88px);
+  height: calc(var(--sleeve) + 8px);
+  display: flex;
+  align-items: center;
+}
+
+.sleeve-3d-unit {
+  position: relative;
+  width: var(--sleeve);
+  height: var(--sleeve);
+  transform-style: preserve-3d;
+  transform: none;
+}
+
+.sleeve-3d-disc {
+  --disc-label: #f59e0b;
+  --disc: calc(var(--sleeve) * var(--disc-scale));
+  position: absolute;
+  top: calc((var(--sleeve) - var(--disc)) / 2);
+  left: calc(var(--sleeve) - var(--disc) * (1 - var(--disc-out)));
+  width: var(--disc);
+  height: var(--disc);
+  border-radius: 50%;
+  background:
+    radial-gradient(
+      circle at 50% 50%,
+      #09090b 0 6.5px,
+      rgba(255, 255, 255, 0.42) 6.8px 7.8px,
+      rgba(24, 24, 28, 0.92) 8px 13px,
+      var(--disc-label) 13.5px 21.5px,
+      #12131a 22px 24px,
+      transparent 24.5px
+    ),
+    conic-gradient(
+      from 28deg,
+      rgba(255, 255, 255, 0.04) 0deg,
+      rgba(255, 255, 255, 0.34) 24deg,
+      rgba(125, 211, 252, 0.2) 40deg,
+      rgba(253, 224, 71, 0.14) 54deg,
+      rgba(255, 255, 255, 0.03) 76deg,
+      rgba(10, 10, 14, 0.5) 132deg,
+      rgba(255, 255, 255, 0.04) 180deg,
+      rgba(255, 255, 255, 0.32) 204deg,
+      rgba(253, 164, 175, 0.2) 220deg,
+      rgba(110, 231, 183, 0.14) 234deg,
+      rgba(255, 255, 255, 0.03) 258deg,
+      rgba(10, 10, 14, 0.5) 316deg,
+      rgba(255, 255, 255, 0.04) 360deg
+    ),
+    repeating-radial-gradient(
+      circle at 50% 50%,
+      #272936 0 1.5px,
+      #101118 1.5px 3.2px
+    );
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.65),
+    0 14px 30px -8px rgba(0, 0, 0, 0.88);
+  transform: translateZ(-4px);
+  transition: translate 0.36s var(--spring);
+}
+
+.sleeve-3d-disc[data-tier="dolby_atmos"] {
+  --disc-label: #fb7185;
+}
+
+.sleeve-3d-disc[data-tier="hires_24bit"] {
+  --disc-label: #f59e0b;
+}
+
+.sleeve-3d-disc[data-tier="lossless_16bit"] {
+  --disc-label: #38bdf8;
+}
+
+.sleeve-3d-disc[data-tier="high_320"] {
+  --disc-label: #a1a1aa;
+}
+
+.telemetry-plate.is-spinning .sleeve-3d-disc {
+  animation: confih-vinyl-spin 16s linear infinite;
+}
+
+/* Idle drift reads as "a record sitting there"; an actual stream spins it at
+   roughly 25 rpm so the state change is felt before the labels are read. */
+.telemetry-plate.is-live-now .sleeve-3d-disc {
+  animation-duration: 2.4s;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  /* Slides out to --disc-out-hover: exactly the difference between the two
+     fractions, in record widths, so the pair of numbers above stay the truth. */
+  .telemetry-plate:hover .sleeve-3d-disc {
+    translate: calc(var(--disc) * (var(--disc-out-hover) - var(--disc-out))) 0;
+  }
+}
+
+@keyframes confih-vinyl-spin {
+  from {
+    transform: translateZ(-4px) rotate(0deg);
+  }
+  to {
+    transform: translateZ(-4px) rotate(360deg);
+  }
+}
+
+/* The record's label is the artwork itself. The tier colour still reads as a
+   thin rim, and when a track has no cover the label falls back to that colour. */
+.sleeve-3d-label {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 31%;
+  height: 31%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background-color: var(--disc-label);
+  background-image: var(--disc-art, none);
+  background-position: center;
+  background-size: cover;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.18) inset,
+    0 0 6px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+/* Spindle hole, drawn above the label so the artwork reads as a printed centre. */
+.sleeve-3d-label::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 30%;
+  height: 30%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: #09090b;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 0 0 5px rgba(0, 0, 0, 0.7) inset;
+}
+
+#telemetry-track-cover {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  width: var(--sleeve);
+  height: var(--sleeve);
+  border-radius: calc(var(--sleeve) * 0.13);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.26) inset,
+    6px 0 18px -6px rgba(0, 0, 0, 0.82),
+    0 16px 32px -10px rgba(0, 0, 0, 0.78);
+  transform: none;
+  transition: opacity var(--t-mid) var(--ease);
+}
+
+/* Sleeve art swaps as a crossfade: the outgoing cover dissolves under the
+   incoming one, which is appended only once its bitmap has decoded. */
+#telemetry-track-cover.is-cover-in,
+#telemetry-track-cover.is-cover-out {
+  opacity: 0;
+}
+
+/* Physical gatefold spine crease & acrylic sleeve sheen */
+#telemetry-track-cover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.16) 0px,
+      rgba(0, 0, 0, 0.38) 6px,
+      rgba(255, 255, 255, 0.14) 7px,
+      transparent 10px
+    ),
+    linear-gradient(
+      145deg,
+      rgba(255, 255, 255, 0.14) 0%,
+      transparent 42%,
+      rgba(0, 0, 0, 0.24) 100%
+    );
+}
+
+.telemetry-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+/* New sleeve content arrives as one block — title, artist and tier chip are
+   read together, so they move together rather than staggering apart. */
+.telemetry-meta.is-refresh {
+  animation: confih-meta-fade var(--t-mid) var(--ease);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .telemetry-meta.is-refresh {
+    animation: confih-meta-in var(--t-mid) var(--spring);
+  }
+}
+
+@keyframes confih-meta-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes confih-meta-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+}
+
+.telemetry-signal-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.telemetry-eq {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+  padding-bottom: 1px;
+}
+
+.telemetry-eq > i {
+  display: block;
+  width: 2.5px;
+  border-radius: 1.5px;
+  background: var(--gold);
+}
+
+.telemetry-eq > i:nth-child(1) { height: 6px; }
+.telemetry-eq > i:nth-child(2) { height: 11px; }
+.telemetry-eq > i:nth-child(3) { height: 8px; }
+
+.telemetry-plate.is-live-now .telemetry-eq > i {
+  background: var(--ok);
+  animation: confih-eq-pulse 0.9s ease-in-out infinite alternate;
+}
+.telemetry-plate.is-live-now .telemetry-eq > i:nth-child(2) {
+  animation-delay: 0.18s;
+}
+.telemetry-plate.is-live-now .telemetry-eq > i:nth-child(3) {
+  animation-delay: 0.34s;
+}
+
+@keyframes confih-eq-pulse {
+  from { transform: scaleY(0.45); transform-origin: bottom; }
+  to { transform: scaleY(1); transform-origin: bottom; }
+}
+
+.telemetry-codec-spec {
+  font-family: var(--mono);
+  font-size: 0.69rem;
+  font-weight: 520;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.telemetry-title {
+  margin-top: 0.42rem;
+  font-size: 1.3rem;
+  font-weight: 720;
+  letter-spacing: -0.026em;
+  line-height: 1.18;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.telemetry-sub-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.48rem;
+  margin-top: 0.3rem;
+}
+
+.telemetry-sub {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 560;
+  line-height: 1.4;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.telemetry-album {
+  font-size: 0.84rem;
+  line-height: 1.4;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+
+.telemetry-album::before {
+  content: "· ";
+  color: var(--ink-4);
+}
+
+.telemetry-tier-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.14rem 0.52rem;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--edge-2);
+  background: rgba(255, 255, 255, 0.04);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  font-weight: 590;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.telemetry-tier-pill[data-tier="dolby_atmos"] {
+  border-color: color-mix(in srgb, var(--signal-2) 38%, var(--edge));
+  background: color-mix(in srgb, var(--signal-2) 12%, transparent);
+  color: #fda4af;
+}
+
+.telemetry-tier-pill[data-tier="hires_24bit"] {
+  border-color: color-mix(in srgb, var(--gold) 38%, var(--edge));
+  background: color-mix(in srgb, var(--gold) 12%, transparent);
+  color: var(--gold);
+}
+
+.telemetry-tier-pill[data-tier="lossless_16bit"] {
+  border-color: color-mix(in srgb, var(--cyan) 38%, var(--edge));
+  background: color-mix(in srgb, var(--cyan) 12%, transparent);
+  color: var(--cyan);
+}
+
+/* ── Shared Track Cover Art Tile ───────────────────────────────────────── */
+
+.track-cover {
+  position: relative;
+  flex: none;
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: linear-gradient(145deg, var(--raised), var(--panel-solid));
+  border: 1px solid var(--edge-2);
+  box-shadow: 0 1px 0 var(--rim-top) inset, 0 8px 18px -8px rgba(0, 0, 0, 0.55);
+}
+
+.track-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cover-fallback {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(circle at 28% 24%, rgba(250, 35, 59, 0.24), transparent 65%),
+    repeating-radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.03) 0 1px, transparent 1px 6px),
+    linear-gradient(155deg, #1b1c24 0%, #0e0f14 100%);
+  font-size: 1.15rem;
+  font-weight: 750;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+}
+
+#telemetry-track-cover .cover-fallback {
+  font-size: 2.6rem;
+}
+
+.cover-monogram {
+  display: inline-grid;
+  place-items: center;
+  width: 2.1em;
+  height: 2.1em;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(9, 9, 11, 0.45);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.12) inset;
+}
+
+/* ── Toolbar, Search & Summary Bento Strip ─────────────────────────────── */
+
+.block-head-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.block-head-bar .block-head {
+  margin-bottom: 0;
+}
+
+.plays-filter-note {
+  display: inline-block;
+  margin-top: 0.55rem;
+  padding: 0.25rem 0.72rem;
+  border-radius: var(--r-pill);
+  background: var(--signal-soft);
+  border: 1px solid var(--signal-line);
+  font-size: 0.78rem !important;
+  font-weight: 600;
+  color: var(--signal) !important;
+}
+
+.plays-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.plays-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 200px;
+  min-width: min(210px, 100%);
+  max-width: 240px;
+}
+
+#plays-search {
+  min-height: 40px;
+  padding: 0.52rem 2.2rem 0.52rem 0.92rem;
+  border-radius: var(--r-control);
+  font-size: 0.85rem;
+}
+
+.plays-search-clear {
+  position: absolute;
+  right: 0.42rem;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--edge-2);
+  background: var(--panel-2);
+  color: var(--ink-2);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.plays-search-clear:hover {
+  color: var(--ink);
+  border-color: var(--edge-3);
+}
+
+.plays-updated {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+/* Always-on feed marker. Not a control: the page polls itself every 10 s. */
+.plays-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.plays-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1.15rem;
+}
+
+.plays-stat {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 1.2rem 1.25rem 1.15rem;
+  background: var(--panel);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+  min-width: 0;
+  overflow: hidden;
+  transition: border-color 0.2s var(--ease), box-shadow 0.24s var(--ease);
+}
+
+.plays-stat::before {
+  content: "";
+  position: absolute;
+  left: 14%;
+  right: 14%;
+  top: -1px;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--pstat-rim, rgba(255, 255, 255, 0.16)),
+    transparent
+  );
+}
+
+.plays-stat[data-stat-tone="gold"] {
+  --pstat-rim: rgba(251, 191, 36, 0.52);
+}
+
+.plays-stat[data-stat-tone="emerald"] {
+  --pstat-rim: rgba(52, 211, 153, 0.48);
+}
+
+.plays-stat[data-stat-tone="cyan"] {
+  --pstat-rim: rgba(56, 189, 248, 0.48);
+}
+
+.plays-stat:hover {
+  border-color: var(--edge-2);
+}
+
+.plays-stat-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.plays-stat-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: rgba(9, 9, 11, 0.68);
+  border: 1px solid var(--edge);
+  color: var(--ink-3);
+}
+
+.plays-stat[data-stat-tone="gold"] .plays-stat-icon {
+  color: var(--gold);
+  border-color: color-mix(in srgb, var(--gold) 24%, var(--edge));
+}
+
+.plays-stat[data-stat-tone="emerald"] .plays-stat-icon {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 24%, var(--edge));
+}
+
+.plays-stat[data-stat-tone="cyan"] .plays-stat-icon {
+  color: var(--cyan);
+  border-color: color-mix(in srgb, var(--cyan) 24%, var(--edge));
+}
+
+.plays-stat-value {
+  font-size: clamp(1.7rem, 1.35rem + 1.25vw, 2.25rem);
+  font-weight: 720;
+  letter-spacing: -0.035em;
+  line-height: 1.05;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.plays-stat-value.is-text {
+  font-size: clamp(1.15rem, 1rem + 0.55vw, 1.45rem);
+  line-height: 1.2;
+  color: var(--ink);
+}
+
+.plays-stat-label {
+  margin-top: 0.42rem;
+  font-size: 0.85rem;
+  font-weight: 630;
+  color: var(--ink);
+}
+
+.plays-stat-note {
+  margin-top: 0.18rem;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+
+/* ── Stacked 24-Hour Quality Chart & Tier Filter Pills ─────────────────── */
+
+.plays-split {
+  display: grid;
+  /* Equal halves: the chart and the quality mix are a pair, not a lead + sidebar. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1.2rem;
+  align-items: stretch;
+}
+
+.plays-split > div:first-child,
+.plays-side {
+  display: flex;
+  flex-direction: column;
+  padding: 1.35rem 1.5rem;
+  background: var(--panel);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+  min-width: 0;
+}
+
+.plays-chart-stage {
+  /* Fills whatever height the quality-mix card sets, so both panels stay level. */
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 0.78rem 0.9rem 0.65rem;
+  border-radius: var(--r-control);
+  background-color: rgba(9, 9, 11, 0.64);
+  background-image: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.03) 1px,
+    transparent 1px,
+    transparent 50%,
+    rgba(255, 255, 255, 0.035) calc(50% + 1px),
+    transparent calc(50% + 1px)
+  );
+  border: 1px solid var(--edge);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.42);
+}
+
+.plays-chart {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(24, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 5px;
+  flex: 1 1 auto;
+  min-height: 112px;
+  padding: 20px 0 3px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.plays-chart[data-peak]::before {
+  content: attr(data-peak);
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--ink-3);
+  pointer-events: none;
+}
+
+.plays-bar {
+  position: relative;
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: flex-start;
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--idle) 22%, transparent);
+  transition: transform 0.16s var(--spring), background-color 0.16s var(--ease);
+}
+
+.plays-bar:hover,
+.plays-bar:focus-visible {
+  transform: translateY(-2px);
+  background: color-mix(in srgb, var(--idle) 38%, transparent);
+}
+
+.plays-bar.is-pinned {
+  background: var(--signal-soft);
+  box-shadow: 0 0 0 2px var(--signal);
+}
+
+.plays-bar-seg {
+  display: block;
+  width: 100%;
+  min-height: 3px;
+  border-radius: 4px;
+  background: var(--signal);
+  transition: filter 0.18s var(--ease), transform 0.18s var(--ease);
+}
+
+/* Restrained Studio Quality Tier Palette */
+.plays-bar-seg[data-tier="dolby_atmos"],
+.swatch[data-tier="dolby_atmos"],
+.track-quality > span[data-tier="dolby_atmos"] {
+  background: var(--signal-2);
+}
+
+.plays-bar-seg[data-tier="hires_24bit"],
+.swatch[data-tier="hires_24bit"],
+.track-quality > span[data-tier="hires_24bit"] {
+  background: var(--gold);
+}
+
+.plays-bar-seg[data-tier="lossless_16bit"],
+.swatch[data-tier="lossless_16bit"],
+.track-quality > span[data-tier="lossless_16bit"] {
+  background: var(--cyan);
+}
+
+.plays-bar-seg[data-tier="high_320"],
+.swatch[data-tier="high_320"],
+.track-quality > span[data-tier="high_320"] {
+  background: var(--ink-3);
+}
+
+/* Isolate Focused Quality Tier without breaking contrast */
+.plays-chart[data-focus="dolby_atmos"] .plays-bar-seg:not([data-tier="dolby_atmos"]),
+.plays-chart[data-focus="hires_24bit"] .plays-bar-seg:not([data-tier="hires_24bit"]),
+.plays-chart[data-focus="lossless_16bit"] .plays-bar-seg:not([data-tier="lossless_16bit"]),
+.plays-chart[data-focus="high_320"] .plays-bar-seg:not([data-tier="high_320"]) {
+  filter: grayscale(0.85) brightness(0.55);
+}
+
+.plays-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.65rem;
+  font-family: var(--mono);
+  font-size: 0.73rem;
+  color: var(--ink-4);
+}
+
+.plays-readout {
+  margin-top: 0.85rem;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.plays-readout b {
+  color: var(--ink);
+  font-weight: 660;
+}
+
+.pin-hint {
+  margin-left: 0.6rem;
+  padding: 0.16rem 0.55rem;
+  border-radius: var(--r-pill);
+  background: var(--signal-soft);
+  border: 1px solid var(--signal-line);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--signal);
+}
+
+.mix-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 3px;
+  background: var(--signal);
+}
+
+.plays-side h3 {
+  margin-bottom: 0.45rem;
+  font-size: 1.125rem;
+}
+
+.plays-side > p {
+  margin-bottom: 1.15rem;
+  font-size: 0.86rem;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+
+.mix-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.mix-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.7rem 0.85rem;
+  background: var(--inset);
+  border: 1px solid var(--edge);
+  border-radius: var(--r);
+  font: inherit;
+  font-size: 0.84rem;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.16s var(--ease), border-color 0.16s var(--ease),
+    color 0.16s var(--ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .mix-row:not(:disabled):hover {
+    border-color: var(--edge-3);
+    background: color-mix(in srgb, var(--signal) 6%, var(--inset));
+  }
+}
+
+.mix-row[aria-pressed="true"] {
+  background: var(--signal-soft);
+  border-color: var(--signal-line);
+  color: var(--signal);
+}
+
+.mix-row[aria-pressed="true"] .pct {
+  color: var(--signal);
+}
+
+.mix-row:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.mix-row .pct {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Ranked Tracks & 2-Column Recent Feed ──────────────────────────────── */
+
+/* The ranked catalogue scrolls in place, like the feed: a long sitting becomes
+   a list you can travel instead of a page that keeps growing. */
+.track-rank {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: min(70vh, 760px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* The list holds its own scroll position when a card arrives; browser scroll
+     anchoring would fight the FLIP animation doing the same job. */
+  overflow-anchor: none;
+  scrollbar-gutter: stable;
+  padding-right: 0.4rem;
+  border-radius: var(--r-card);
+}
+
+.track-rank:focus-visible,
+
+.track-row {
+  display: grid;
+  grid-template-columns: 2rem 52px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.9rem 1.2rem;
+  padding: 0.95rem 1.25rem;
+  background: var(--panel);
+  backdrop-filter: blur(18px);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+  transition: transform 0.18s var(--spring), border-color 0.18s var(--ease);
+  min-width: 0;
+}
+
+.track-row:hover {
+  transform: translateY(-2px);
+  border-color: var(--edge-2);
+}
+
+.track-pos {
+  font-family: var(--mono);
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--ink-3);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.track-row:nth-child(1) .track-pos {
+  color: var(--signal);
+}
+.track-row:nth-child(2) .track-pos,
+.track-row:nth-child(3) .track-pos {
+  color: var(--gold);
+}
+
+.track-names {
+  min-width: 0;
+}
+
+.track-title {
+  font-size: 0.96rem;
+  font-weight: 650;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.track-artist {
+  margin-top: 0.15rem;
+  font-size: 0.82rem;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.track-quality {
+  display: flex;
+  gap: 2px;
+  height: 5px;
+  margin-top: 0.55rem;
+  background: var(--inset);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.track-quality > span {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+}
+
+.track-metric {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 68px;
+  font-variant-numeric: tabular-nums;
+}
+
+.track-metric b {
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/* One beat when a track's play count went up: the number lifts and takes the
+   accent, which is what makes a one-place climb visible in a moving list. */
+.track-metric b.is-count-bump {
+  animation: confih-count-bump 560ms var(--spring);
+}
+
+@keyframes confih-count-bump {
+  0% {
+    scale: 1;
+  }
+  34% {
+    scale: 1.22;
+    color: var(--gold);
+  }
+  100% {
+    scale: 1;
+  }
+}
+
+.track-metric span {
+  font-size: 0.74rem;
+  color: var(--ink-3);
+}
+
+/* Scroll affordance: fade the edge that has more behind it, and only that one. */
+.track-rank.is-more-below,
+.recent-list.is-more-below {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 34px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 34px), transparent);
+}
+
+.track-rank.is-more-above,
+.recent-list.is-more-above {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 34px);
+  mask-image: linear-gradient(to bottom, transparent, #000 34px);
+}
+
+.track-rank.is-more-above.is-more-below,
+.recent-list.is-more-above.is-more-below {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 34px,
+    #000 calc(100% - 34px),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 34px,
+    #000 calc(100% - 34px),
+    transparent
+  );
+}
+
+/* Recent Feed Bento Cards */
+/* The feed shows a whole sitting, so it gets its own scroll area rather than
+   stretching the page by however many tracks were played. */
+.recent-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+  max-height: min(60vh, 620px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  overflow-anchor: none;
+  scrollbar-gutter: stable;
+  padding-right: 0.4rem;
+  border-radius: var(--r-card);
+}
+
+.recent-list:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 4px;
+}
+
+.recent-row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem 1rem;
+  padding: 0.95rem 1.15rem;
+  background: var(--panel);
+  backdrop-filter: blur(18px);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+  min-width: 0;
+  transition: transform 0.18s var(--spring), border-color 0.18s var(--ease);
+}
+
+.recent-row:hover {
+  transform: translateY(-2px);
+  border-color: var(--edge-2);
+}
+
+.tier-badge {
+  justify-self: end;
+  padding: 0.24rem 0.62rem;
+  border-radius: var(--r-pill);
+  background: var(--inset);
+  border: 1px solid var(--edge-2);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.tier-badge[data-tier="dolby_atmos"] {
+  background: var(--signal-soft);
+  border-color: var(--signal-line);
+  color: var(--signal);
+}
+
+.tier-badge[data-tier="hires_24bit"] {
+  background: var(--gold-soft);
+  border-color: color-mix(in srgb, var(--gold) 38%, transparent);
+  color: var(--gold);
+}
+
+.tier-badge[data-tier="lossless_16bit"] {
+  background: color-mix(in srgb, var(--cyan) 14%, transparent);
+  border-color: color-mix(in srgb, var(--cyan) 36%, transparent);
+  color: var(--cyan);
+}
+
+.recent-when {
+  grid-column: 2 / -1;
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -0.25rem;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink-4);
+}
+
+/* Empty State */
+.plays-empty {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2.25rem 1.5rem;
+  background: var(--inset);
+  border: 1px dashed var(--edge-2);
+  border-radius: var(--r-lg);
+  color: var(--ink-3);
+}
+
+.plays-empty h3 {
+  margin-bottom: 0.4rem;
+  font-size: 1rem;
+  color: var(--ink);
+}
+
+.plays-empty p {
+  max-width: 46ch;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+/* ── Responsive & Touch Targets ────────────────────────────────────────── */
+
+@media (pointer: coarse), (max-width: 768px) {
+  .plays-search-clear,
+  .telemetry-step-btn {
+    min-height: 44px;
+  }
+
+  .telemetry-step-btn {
+    min-width: 38px;
+  }
+
+  .plays-search-clear {
+    min-width: 44px;
+    right: 0.15rem;
+  }
+
+  #plays-search {
+    padding-right: 3rem;
+  }
+}
+
+@media (max-width: 980px) {
+  .plays-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .plays-split,
+  .recent-list {
+    grid-template-columns: minmax(0, 1fr);
+    max-height: 68vh;
+  }
+}
+
+@media (max-width: 680px) {
+  .plays-strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .telemetry-track {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1.15rem;
+  }
+
+  /* The block is anchored to the sleeve, so the plinth has to declare the knob. */
+  .sleeve-3d-plinth {
+    --sleeve: 120px;
+  }
+
+  .track-row {
+    grid-template-columns: 1.6rem 48px minmax(0, 1fr);
+    gap: 0.75rem 0.9rem;
+  }
+
+  .track-metric {
+    grid-column: 3;
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: flex-start;
+    gap: 0.35rem;
+    min-width: 0;
+  }
+
+  .plays-chart {
+    gap: 3px;
+    padding-inline: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sleeve-3d-unit {
+    transform: none !important;
+  }
+  .sleeve-3d-disc,
+  .telemetry-plate.is-spinning .sleeve-3d-disc,
+  .telemetry-plate.is-live-now .sleeve-3d-disc,
+  .telemetry-plate.is-live-now .telemetry-eq > i {
+    animation: none !important;
+    transition: none !important;
+  }
+  .sleeve-3d-disc,
+  .telemetry-plate.is-spinning .sleeve-3d-disc {
+    transform: translateZ(-4px) !important;
+  }
+  .telemetry-plate:hover .sleeve-3d-disc {
+    translate: none !important;
+  }
+}
+
+@media (forced-colors: active) {
+  #plays-headline {
+    background: none;
+    color: CanvasText;
+    -webkit-text-fill-color: CanvasText;
+  }
+  .plays-bar-seg {
+    forced-color-adjust: none;
+    border: 1px solid ButtonText;
+  }
+}

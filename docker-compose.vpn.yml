@@ -1,0 +1,125 @@
+# Free supported-country egress for the Qobuz JSON API.
+#
+# Use this instead of docker-compose.yml when the addon runs on a server in a
+# country Qobuz does not serve (for example India):
+#
+#   docker compose -f docker-compose.vpn.yml up -d --build
+#
+# Only the addon shares Proton VPN's network namespace. Caddy stays on the
+# normal Docker network and publishes 80/443, because Proton VPN Free does not
+# provide inbound port forwarding. Audio never passes through this server:
+# /stream returns a signed Qobuz CDN URL that the phone downloads directly.
+#
+# Do not run docker-compose.yml and docker-compose.vpn.yml at the same time:
+# both publish ports 80/443.
+
+services:
+  vpn:
+    # v3 is the latest stable release line; avoid :latest (edge builds).
+    image: qmcgaw/gluetun:v3
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      VPN_SERVICE_PROVIDER: protonvpn
+      VPN_TYPE: wireguard
+      # Proton WireGuard private key from:
+      # account.protonvpn.com -> Downloads -> WireGuard configuration
+      # The key is account-wide; gluetun chooses the server.
+      WIREGUARD_PRIVATE_KEY: ${PROTON_WG_PRIVATE_KEY:?Set PROTON_WG_PRIVATE_KEY in .env}
+      SERVER_COUNTRIES: ${PROTON_SERVER_COUNTRIES:-United States}
+      # Optional narrowing. Empty means "any server in the country". Pinning a
+      # hostname keeps the exit IP stable; see PROTON_SERVER_HOSTNAMES in
+      # .env.example if Qobuz rejects a shared Proton exit.
+      SERVER_CITIES: ${PROTON_SERVER_CITIES:-}
+      SERVER_HOSTNAMES: ${PROTON_SERVER_HOSTNAMES:-}
+      # Proton VPN Free servers only (NL, US, JP, PL, RO). No paid features.
+      # Set PROTON_FREE_ONLY=off only to pin a server the free filter hides.
+      FREE_ONLY: ${PROTON_FREE_ONLY:-on}
+      # gluetun's HTTP control server defaults to :8000, which would collide
+      # with the addon in the shared network namespace. Move the control server
+      # to 8001; it is not published to the host.
+      HTTP_CONTROL_SERVER_ADDRESS: ":8001"
+      # Allow Caddy, which is outside the VPN namespace, to reach the addon on
+      # 8000. This does not expose port 8000 to the internet; only Caddy's
+      # Docker network can reach it.
+      FIREWALL_INPUT_PORTS: "8000,8888"
+      # Built-in HTTP proxy. Only Qobuz API calls use it (QOBUZ_PROXY_URL); the
+      # addon itself runs outside the VPN so Tidal and the BitChord app reach
+      # it without the VPN's extra ~1 s per request. Reachable on the private
+      # Docker network only; it is not published.
+      HTTPPROXY: "on"
+      HTTPPROXY_LISTENING_ADDRESS: ":8888"
+      HTTPPROXY_LOG: "off"
+      TZ: ${TZ:-Asia/Kolkata}
+    networks:
+      - addon
+    healthcheck:
+      test: ["CMD", "/gluetun-entrypoint", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+  addon:
+    build: .
+    restart: unless-stopped
+    # The addon stays on the normal Docker network (direct, fast path for
+    # Tidal). Only Qobuz API requests are sent through gluetun's HTTP proxy.
+    networks:
+      - addon
+    depends_on:
+      vpn:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /data
+      # Caddy is the only route in; trust its X-Forwarded-For for client limits.
+      TRUST_PROXY_HEADERS: "true"
+      QOBUZ_PROXY_URL: "http://vpn:8888"
+    volumes:
+      - addon_data:/data
+    # Explicit here as well as in the Dockerfile so Compose's service_healthy
+    # condition does not depend on image introspection.
+    healthcheck:
+      test: ["CMD", "python", "scripts/healthcheck.py"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      addon:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      ADDON_DOMAIN: ${ADDON_DOMAIN:?Set ADDON_DOMAIN in .env to the addon hostname}
+      # gluetun's network namespace is reachable by its service name.
+      ADDON_UPSTREAM: addon:8000
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - addon
+
+volumes:
+  addon_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  addon:

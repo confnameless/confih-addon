@@ -1,0 +1,19 @@
+{$ADDON_DOMAIN} {
+	encode zstd gzip
+	# docker-compose.yml uses addon:8000; docker-compose.vpn.yml uses
+	# vpn:8000, where the addon shares gluetun's network namespace.
+	reverse_proxy {$ADDON_UPSTREAM:addon:8000}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+		-X-Powered-By
+	}
+
+	# Access logging is deliberately off: if ADDON_PATH_SECRET is set, every
+	# request path contains it, and a proxy access log would persist the secret.
+	# The addon logs its own warnings and errors with the secret redacted.
+	log {
+		output discard
+	}
+}

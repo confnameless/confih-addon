@@ -1,0 +1,49 @@
+services:
+  addon:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Container path; the token file is persisted in the named volume.
+      DATA_DIR: /data
+      # Caddy is the only route in; trust its X-Forwarded-For for client limits.
+      TRUST_PROXY_HEADERS: "true"
+    volumes:
+      - addon_data:/data
+    expose:
+      - "8000"
+    networks:
+      - addon
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - addon
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      ADDON_DOMAIN: ${ADDON_DOMAIN:?Set ADDON_DOMAIN in .env to the addon hostname}
+      # Service name of the addon in this stack.
+      ADDON_UPSTREAM: addon:8000
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - addon
+
+volumes:
+  addon_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  addon:

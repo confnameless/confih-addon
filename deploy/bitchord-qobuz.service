@@ -1,0 +1,30 @@
+[Unit]
+Description=BitChord Qobuz addon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bitchord-qobuz
+Group=bitchord-qobuz
+WorkingDirectory=/opt/bitchord-qobuz-addon
+EnvironmentFile=/opt/bitchord-qobuz-addon/.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/bitchord-qobuz-addon/.venv/bin/uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8000 --no-access-log
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/bitchord-qobuz-addon/data
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

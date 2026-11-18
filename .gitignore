@@ -1,0 +1,40 @@
+# Secrets and runtime state
+.env
+.env.*
+!.env.example
+data/
+cloudflared/
+*.token
+*.log
+
+# VPN configuration files contain private keys
+*.wg.conf
+wg*.conf
+proton*.conf
+*.ovpn
+protonvpn/
+wireguard/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Internal notes: deployment coordinates, test host secrets, server paths.
+CONTEXT.md
+RECOMMENDATIONS.md
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Local agent skills (not part of the gateway)
+.agents/
