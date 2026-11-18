@@ -542,3 +542,33 @@ async def test_root_vault_api_unmounted_and_runtime_secret_redaction(
                 "/admin/api/summary", headers={"X-Vault-Key": token}
             )
             assert admin_res.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_bare_root_redirects_browsers_to_status_under_a_path_secret(
+    tmp_path: Path,
+) -> None:
+    """With a path secret the addon lives under /s/<secret>; the bare root used
+    to answer a JSON 404 instead of the page a visitor expects."""
+    app = create_app(
+        make_settings(tmp_path, addon_path_secret="vault_secret_123"),
+        transport=httpx.MockTransport(FakeQobuz()),
+    )
+    async with LifespanManager(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            browser = await client.get("/", headers={"Accept": "text/html"})
+            assert browser.status_code == 308
+            assert browser.headers["location"] == "/status"
+
+            followed = await client.get(
+                "/", headers={"Accept": "text/html"}, follow_redirects=True
+            )
+            assert followed.status_code == 200
+            assert "text/html" in followed.headers["content-type"]
+
+            # An addon client probing "/" still gets discovery JSON.
+            addon = await client.get("/", headers={"Accept": "application/json"})
+            assert addon.status_code == 200
+            assert addon.json()["manifest"].endswith("/manifest.json")

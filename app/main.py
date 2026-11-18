@@ -37,7 +37,7 @@ from urllib.parse import urlparse
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.gzip import GZipMiddleware
@@ -609,6 +609,22 @@ def create_app(
             },
             cache="public, max-age=600",
         )
+
+    if prefix:
+        # With ADDON_PATH_SECRET set, every addon route lives under /s/<secret>,
+        # so the bare root matched nothing and answered a JSON 404. A visitor
+        # who types the hostname wants the status page; an addon client probing
+        # "/" still gets the discovery JSON it expects.
+        @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
+        async def bare_root(request: Request) -> Response:
+            accept = (request.headers.get("accept") or "").lower()
+            user_agent = (request.headers.get("user-agent") or "").lower()
+            is_browser = "text/html" in accept or (
+                "application/json" not in accept and "bitchord" not in user_agent
+            )
+            if is_browser:
+                return RedirectResponse("/status", status_code=308)
+            return await root(request)
 
     @app.api_route("/robots.txt", methods=["GET", "HEAD"], include_in_schema=False)
     async def robots_txt(request: Request) -> Response:
