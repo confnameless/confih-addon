@@ -979,6 +979,7 @@ def create_app(
         q: str = "",
         tier: str = "",
         limit: int | None = None,
+        offset: int = 0,
     ) -> Response:
         if not settings.public_plays:
             return _error(404, "not_found", "The public play feed is disabled")
@@ -991,6 +992,7 @@ def create_app(
                 query=q,
                 tier=tier,
                 limit=limit,
+                offset=offset,
             ),
             cache="no-store",
         )

@@ -787,23 +787,27 @@
 
   /* ── ranked tracks ────────────────────────────────────────────────────── */
 
-  function renderTop(rows) {
+  function renderTop(rows, append) {
     var list = els.top;
     if (!list) return;
-    var before = rowTops(list, 'data-key');
-    var scrollState = listScroll(list, 'data-key');
-    clear(list);
+    var before = append ? null : rowTops(list, 'data-key');
+    var scrollState = append ? null : listScroll(list, 'data-key');
+    var startIndex = append ? list.querySelectorAll('.track-row').length : 0;
+    if (!append) clear(list);
 
     if (!rows || !rows.length) {
-      list.appendChild(emptyState());
+      if (!append) {
+        list.appendChild(emptyState());
+      }
       return;
     }
 
+    var pager = pagerNode(list);
     rows.forEach(function (row, index) {
       var item = el('div', 'track-row');
-      item.setAttribute('data-key', row.id || 'row-' + index);
+      item.setAttribute('data-key', row.id || 'row-' + (startIndex + index));
       item.setAttribute('data-plays', String(num(row.plays)));
-      item.appendChild(el('div', 'track-pos', String(index + 1)));
+      item.appendChild(el('div', 'track-pos', String(startIndex + index + 1)));
       item.appendChild(cover(row));
 
       var names = el('div', 'track-names');
@@ -858,20 +862,249 @@
           : 'Streams served for this track, repeats included';
       item.appendChild(plays);
 
-      list.appendChild(item);
+      list.insertBefore(item, pager);
     });
 
-    settleList(list, before, 'data-key', {
-      scrollTop: scrollState.top,
-      scrollHeight: scrollState.height,
-      firstKey: scrollState.first,
-      counts: state.counts,
-    });
+    if (!append) {
+      settleList(list, before, 'data-key', {
+        scrollTop: scrollState.top,
+        scrollHeight: scrollState.height,
+        firstKey: scrollState.first,
+        counts: state.counts,
+      });
+      state.counts = {};
+      rows.forEach(function (row, index) {
+        state.counts[row.id || 'row-' + index] = num(row.plays);
+      });
+    }
     markScrollEdges(list);
-    state.counts = {};
-    rows.forEach(function (row, index) {
-      state.counts[row.id || 'row-' + index] = num(row.plays);
+    renderPagerTail(list);
+  }
+
+  /* ── paging: the ranking keeps going past the first screen ─────────────── */
+
+  /* A page is small on purpose: the reader downloads the rows they are about
+     to see, not a leaderboard of two thousand tracks and every cover in it.
+     While the next page is in flight the list shows placeholder cards, so a
+     slow answer reads as "arriving", not "broken". */
+  var PAGE = 25;
+  var paging = {
+    offset: 0,
+    total: 0,
+    hasMore: false,
+    loading: false,
+    pages: 0,
+    skeletons: null,
+    endNote: null,
+    observer: null,
+    observed: null,
+    scrollBound: false,
+    error: '',
+  };
+
+  function pagerNode(list) {
+    var node = list.querySelector('.plays-pager');
+    if (!node) {
+      node = el('div', 'plays-pager');
+      list.appendChild(node);
+    }
+    return node;
+  }
+
+  function skeletonRow(index) {
+    var item = el('div', 'track-row is-skeleton');
+    item.setAttribute('aria-hidden', 'true');
+    /* Staggered so the placeholders arrive as a wave and the pulse travels
+       down the list instead of every block blinking in lockstep. */
+    item.style.setProperty('--i', String(index));
+    item.appendChild(el('div', 'track-pos skeleton-block'));
+    item.appendChild(el('div', 'track-cover skeleton-block'));
+    var names = el('div', 'track-names');
+    names.appendChild(el('div', 'skeleton-line skeleton-block'));
+    names.appendChild(el('div', 'skeleton-line skeleton-line-short skeleton-block'));
+    /* The quality strip is part of a real card's height; without it the list
+       would grow when the answer lands and the reader would lose their place. */
+    names.appendChild(el('div', 'skeleton-bar skeleton-block'));
+    item.appendChild(names);
+    item.appendChild(el('div', 'track-metric skeleton-block'));
+    return item;
+  }
+
+  function showSkeletons(list, count) {
+    clearSkeletons(list);
+    var frag = document.createDocumentFragment();
+    var pager = pagerNode(list);
+    /* Match the height of a real card on this screen instead of guessing it in
+       CSS: rows are shorter on a phone than on a desktop, and a placeholder
+       that is the wrong height makes the list jump when the answer lands. */
+    var sample = list.querySelector('.track-row:not(.is-skeleton)');
+    var realHeight = sample ? sample.offsetHeight : 0;
+    var nodes = [];
+    for (var i = 0; i < count; i += 1) {
+      var node = skeletonRow(i);
+      if (realHeight) node.style.minHeight = realHeight + 'px';
+      nodes.push(node);
+      frag.appendChild(node);
+    }
+    list.insertBefore(frag, pager);
+    paging.skeletons = nodes;
+    markScrollEdges(list);
+  }
+
+  function clearSkeletons(list) {
+    if (!paging.skeletons) return;
+    paging.skeletons.forEach(function (node) {
+      if (node && node.parentNode) node.parentNode.removeChild(node);
     });
+    paging.skeletons = null;
+    if (list) markScrollEdges(list);
+  }
+
+  function renderPagerTail(list) {
+    var pager = pagerNode(list);
+    clear(pager);
+    paging.error = '';
+    if (!paging.hasMore) {
+      pager.classList.remove('is-loading');
+      if (!paging.total || paging.pages <= 1) {
+        pager.hidden = true;
+        return;
+      }
+      pager.hidden = false;
+      pager.appendChild(
+        el('p', 'plays-pager-end', 'That is every track the gateway has played.')
+      );
+      return;
+    }
+    pager.hidden = false;
+    pager.classList.toggle('is-loading', paging.loading);
+    pager.appendChild(
+      el(
+        'p',
+        'plays-pager-more',
+        paging.loading
+          ? 'Loading more plays'
+          : 'Scroll for more — ' + group(paging.offset) + ' of ' + group(paging.total)
+      )
+    );
+  }
+
+  function pagingReset(list) {
+    clearSkeletons(list);
+    paging.offset = 0;
+    paging.pages = 0;
+    paging.hasMore = false;
+    paging.loading = false;
+    paging.total = 0;
+  }
+
+  function nearListEnd(list) {
+    return list.scrollTop + list.clientHeight >= list.scrollHeight - 320;
+  }
+
+  function observePager(list) {
+    if (!paging.scrollBound) {
+      /* Belt and braces: an IntersectionObserver is the efficient trigger, but
+         its notifications are coalesced on a busy main thread and can be
+         paused entirely in a background tab, so a plain scroll listener keeps
+         paging working in exactly the cases where the reader is scrolling. */
+      list.addEventListener(
+        'scroll',
+        function () {
+          if (nearListEnd(list)) maybeLoadMore();
+        },
+        { passive: true }
+      );
+      paging.scrollBound = true;
+    }
+    if (!('IntersectionObserver' in window)) return;
+    if (!paging.observer) {
+      paging.observer = new IntersectionObserver(
+        function (entries) {
+          for (var i = 0; i < entries.length; i += 1) {
+            if (entries[i].isIntersecting) {
+              maybeLoadMore();
+              return;
+            }
+          }
+        },
+        /* The list is its own scroll box, so it has to be the root: using the
+           window would fire for rows that are not on screen yet. */
+        { root: list, rootMargin: '480px 0px' }
+      );
+    }
+    /* The tail is rebuilt on every render, so point the observer at the node
+       that is on the page now instead of a detached one. */
+    if (paging.observed) paging.observer.unobserve(paging.observed);
+    paging.observed = pagerNode(list);
+    paging.observer.observe(paging.observed);
+  }
+
+  function maybeLoadMore() {
+    if (paging.loading || !paging.hasMore || paging.error) return;
+    if (window.ConfihRouter && window.ConfihRouter.currentView() !== 'plays') return;
+    loadMore();
+  }
+
+  function loadMore() {
+    var list = els.top;
+    if (!list || paging.loading) return;
+    paging.loading = true;
+    var offset = paging.offset;
+    var want = Math.min(PAGE, Math.max(0, paging.total - offset));
+    showSkeletons(list, want || PAGE);
+    renderPagerTail(list);
+
+    var params = new URLSearchParams();
+    if (state.query) params.set('q', state.query);
+    if (state.tier) params.set('tier', state.tier);
+    params.set('offset', String(offset));
+    params.set('limit', String(PAGE));
+
+    fetch(API + '?' + params.toString(), {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    })
+      .then(function (response) {
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        return response.json();
+      })
+      .then(function (payload) {
+        paging.loading = false;
+        clearSkeletons(list);
+        var rows = (payload && payload.top) || [];
+        if (payload && typeof payload.top_total === 'number') paging.total = payload.top_total;
+        paging.hasMore = !!(payload && payload.has_more);
+        paging.offset = (payload && typeof payload.next_offset === 'number')
+          ? payload.next_offset
+          : offset + rows.length;
+        paging.pages += 1;
+        if (!rows.length) {
+          paging.hasMore = false;
+          renderPagerTail(list);
+          return;
+        }
+        renderTop(rows, true);
+      })
+      .catch(function () {
+        paging.loading = false;
+        clearSkeletons(list);
+        /* Keep the reader's place and let the tail say what to do next. */
+        paging.error = 'Could not load more plays.';
+        var pager = pagerNode(list);
+        clear(pager);
+        pager.classList.remove('is-loading');
+        pager.hidden = false;
+        var retry = el('button', 'plays-pager-retry', 'Tap to retry');
+        retry.type = 'button';
+        retry.addEventListener('click', function () {
+          paging.error = '';
+          renderPagerTail(list);
+          loadMore();
+        });
+        pager.appendChild(el('p', 'plays-pager-more', paging.error));
+        pager.appendChild(retry);
+      });
   }
 
   /* ── recent feed ──────────────────────────────────────────────────────── */
@@ -921,6 +1154,7 @@
   function setTierFilter(key) {
     var next = state.tier === key ? '' : key;
     state.tier = next;
+    pagingReset(els.top);
     if (els.chart) {
       if (next) els.chart.setAttribute('data-focus', next);
       else els.chart.removeAttribute('data-focus');
@@ -1025,8 +1259,8 @@
       els.filterNote.textContent = '';
       return;
     }
-    var count = payload && Array.isArray(payload.search_results)
-      ? payload.search_results.length
+    var count = payload && typeof payload.top_total === 'number'
+      ? payload.top_total
       : (payload && Array.isArray(payload.top) ? payload.top.length : 0);
     els.filterNote.hidden = false;
     els.filterNote.textContent = 'Filtered by ' + parts.join(' · ') + ' (' + count + ' matches)';
@@ -1038,7 +1272,27 @@
     state.needsReload = false;
     renderStats(state.totals);
     renderChart(payload && payload.timeline);
-    renderTop(payload && (payload.search_results || payload.top));
+
+    var rows = (payload && (payload.search_results || payload.top)) || [];
+    var deep = paging.pages > 1;
+    /* A poll never rewrites a list the reader has scrolled into: the ranking is
+       stable by count, so re-rendering only page one would look like the rows
+       below the fold vanished. Counters and the recent feed keep updating. */
+    if (!deep) {
+      paging.total = typeof (payload && payload.top_total) === 'number'
+        ? payload.top_total
+        : rows.length;
+      paging.hasMore = !!(payload && payload.has_more);
+      paging.offset = typeof (payload && payload.next_offset) === 'number'
+        ? payload.next_offset
+        : rows.length;
+      paging.pages = 1;
+      renderTop(rows, false);
+      if (els.top) observePager(els.top);
+    } else if (typeof (payload && payload.top_total) === 'number') {
+      paging.total = payload.top_total;
+      if (els.top) renderPagerTail(els.top);
+    }
     renderRecent(payload && payload.recent);
     renderMix(state.totals);
     renderHeroTelemetry(payload);
@@ -1197,6 +1451,7 @@
       state.debounceTimer = window.setTimeout(function () {
         state.debounceTimer = null;
         state.query = els.search ? els.search.value.trim() : '';
+        pagingReset(els.top);
         load();
       }, 250);
     });
@@ -1211,6 +1466,7 @@
       if (els.search) els.search.value = '';
       els.searchClear.hidden = true;
       state.query = '';
+      pagingReset(els.top);
       load();
     });
   }

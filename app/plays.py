@@ -347,10 +347,48 @@ class PlayLedger:
             ],
         }
 
-    def top(self, limit: int = 12) -> list[dict[str, Any]]:
+    def _matches(self, tokens: list[str], tier: str) -> list[TrackPlays]:
+        out: list[TrackPlays] = []
+        for track in self._tracks.values():
+            if tier and not track.quality.get(tier):
+                continue
+            if tokens:
+                haystack = f"{track.title} {track.artist} {track.album}".casefold()
+                if not all(tok in haystack for tok in tokens):
+                    continue
+            out.append(track)
+        return out
+
+    def page(
+        self,
+        query: str = "",
+        limit: int = 12,
+        *,
+        tier: str = "",
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """One slice of the ranking, plus how many tracks match in total.
+
+        The page is the whole leaderboard in rank order, so the site can keep
+        scrolling instead of stopping at a dozen rows, and a client only ever
+        downloads the slice it is about to show.
+        """
+        clean_tier = (tier or "").strip().lower()
+        if clean_tier == "all":
+            clean_tier = ""
+        if clean_tier and clean_tier not in TIER_ORDER:
+            return [], 0
+        tokens = [tok for tok in (query or "").strip()[:200].casefold().split() if tok]
+        start = max(0, int(offset))
+        count = max(0, int(limit))
         with self._lock:
-            ranked = sorted(self._tracks.values(), key=_rank_key)[: max(0, limit)]
-            return [self._row(t) for t in ranked]
+            matches = self._matches(tokens, clean_tier)
+            matches.sort(key=_rank_key)
+            total = len(matches)
+            return [self._row(t) for t in matches[start : start + count]], total
+
+    def top(self, limit: int = 12) -> list[dict[str, Any]]:
+        return self.page("", limit)[0]
 
     def search(
         self,
@@ -358,29 +396,10 @@ class PlayLedger:
         limit: int = 8,
         *,
         tier: str = "",
+        offset: int = 0,
     ) -> list[dict[str, Any]]:
-        """Case-insensitive substring search over recorded tracks, optionally filtered by tier."""
-        clean_tier = (tier or "").strip().lower()
-        if clean_tier == "all":
-            clean_tier = ""
-        needle = (query or "").strip()[:200].casefold()
-        if not needle and not clean_tier:
-            return self.top(limit)
-        if clean_tier and clean_tier not in TIER_ORDER:
-            return []
-        tokens = [tok for tok in needle.split() if tok]
-        with self._lock:
-            matches = []
-            for track in self._tracks.values():
-                if clean_tier and not track.quality.get(clean_tier):
-                    continue
-                if tokens:
-                    haystack = f"{track.title} {track.artist} {track.album}".casefold()
-                    if not all(tok in haystack for tok in tokens):
-                        continue
-                matches.append(track)
-            matches.sort(key=_rank_key)
-            return [self._row(t) for t in matches[: max(0, limit)]]
+        """Ranked matches for a query, optionally filtered by tier."""
+        return self.page(query, limit, tier=tier, offset=offset)[0]
 
     def recent(self, limit: int = 12) -> list[dict[str, Any]]:
         with self._lock:

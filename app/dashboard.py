@@ -271,7 +271,10 @@ def build_overview_payload(
 #: How much of the ledger the page is handed. Both lists used to stop at 12,
 #: which made a run of quick skips look like it had lost tracks the ledger had
 #: in fact counted; the recent feed now covers a whole sitting.
-TOP_LIMIT = 25
+# First screen of the ranking. The rest arrives as the reader scrolls, one
+# page at a time, with the same size so a page boundary is never a surprise.
+PAGE_SIZE = 25
+MAX_PAGE = 50
 RECENT_LIMIT = 60
 
 
@@ -284,6 +287,7 @@ def build_plays_payload(
     query: str = "",
     tier: str = "",
     limit: int | None = None,
+    offset: int = 0,
 ) -> dict[str, Any]:
     """The public play feed: aggregate counts plus an anonymous history.
 
@@ -307,43 +311,48 @@ def build_plays_payload(
     q_clean = (query or "").strip()[:200]
     tier_raw = (tier or "").strip().lower()
     tier_clean = "" if tier_raw in ("", "all") else tier_raw
-    has_filters = bool(q_clean or tier_clean or limit is not None)
-    effective_limit = max(1, min(int(limit if limit is not None else 12), 50))
+    start = max(0, int(offset))
+    # One page at a time: the page scrolls for the rest, so an initial view no
+    # longer ships the whole leaderboard (and every cover in it) to a phone.
+    page_size = max(1, min(int(limit if limit is not None else PAGE_SIZE), MAX_PAGE))
+    rows, matched = ledger.page(q_clean, page_size, tier=tier_clean, offset=start)
+    ranked = [cover(row) for row in rows]
+    has_more = start + len(ranked) < matched
 
-    if not has_filters:
-        # Every recorded play has to be reachable from the page: capping the two
-        # lists at a dozen rows made a run of skips look like it was losing
-        # tracks that the ledger had counted.
+    # A follow-up page carries the rows and nothing else: stats, chart and the
+    # recent feed are already on screen and would only be re-sent.
+    if start > 0:
         return {
             "addon": addon_name,
             "url": public_url,
-            "totals": totals,
-            "top": [cover(row) for row in ledger.top(TOP_LIMIT)],
-            "recent": [cover(row) for row in ledger.recent(RECENT_LIMIT)],
-            "timeline": ledger.timeline(24),
+            "top": ranked,
+            "top_total": matched,
+            "has_more": has_more,
+            "next_offset": start + len(ranked),
         }
 
-    matched_top = [
-        cover(row)
-        for row in ledger.search(q_clean, limit=effective_limit, tier=tier_clean)
-    ]
-    matched_recent = [
-        cover(row)
-        for row in ledger.filter_recent(
-            q_clean, limit=effective_limit, tier=tier_clean
-        )
-    ]
     return {
         "addon": addon_name,
         "url": public_url,
         "totals": totals,
-        "top": matched_top,
-        "recent": matched_recent,
+        "top": ranked,
+        "top_total": matched,
+        "has_more": has_more,
+        "next_offset": len(ranked),
+        "page_size": page_size,
+        "recent": [
+            cover(row)
+            for row in (
+                ledger.filter_recent(q_clean, limit=RECENT_LIMIT, tier=tier_clean)
+                if (q_clean or tier_clean)
+                else ledger.recent(RECENT_LIMIT)
+            )
+        ],
         "timeline": ledger.timeline(24),
         "query": q_clean,
         "tier": tier_clean,
-        "limit": effective_limit,
-        "search_results": matched_top,
+        "limit": page_size,
+        "search_results": ranked,
     }
 
 

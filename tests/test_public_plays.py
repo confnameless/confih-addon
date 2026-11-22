@@ -186,17 +186,29 @@ async def test_plays_endpoint_search_tier_and_limit_filtering(
         client="10.0.0.3",
     )
 
-    # Un-parameterized retains exact 6-key schema
+    # The first page carries the page metadata the scroller needs
     base_resp = await http.get("/api/plays")
     assert base_resp.status_code == 200
-    assert set(base_resp.json().keys()) == {
+    base = base_resp.json()
+    assert set(base.keys()) == {
         "addon",
         "url",
         "totals",
         "top",
+        "top_total",
+        "has_more",
+        "next_offset",
+        "page_size",
         "recent",
         "timeline",
+        "query",
+        "tier",
+        "limit",
+        "search_results",
     }
+    assert base["top_total"] == 3
+    assert base["has_more"] is False
+    assert base["next_offset"] == 3
 
     # Query filter matches album & keeps totals global
     q_resp = await http.get("/api/plays", params={"q": "discovery"})
@@ -231,6 +243,75 @@ async def test_plays_endpoint_search_tier_and_limit_filtering(
     assert len(lim0.json()["top"]) == 1
     lim999 = await http.get("/api/plays", params={"limit": 999})
     assert lim999.json()["limit"] == 50
+
+
+@pytest.mark.asyncio
+async def test_plays_paging_walks_the_whole_ranking(
+    http: httpx.AsyncClient, app
+) -> None:
+    """A reader can reach every track, one small page at a time."""
+    for index in range(30):
+        app.state.plays.record(
+            track_id=f"track_{index:02d}",
+            title=f"Track {index:02d}",
+            artist="Pager",
+            album="Paging",
+            artwork=None,
+            tier="hires_24bit",
+            client=f"10.0.0.{index}",
+        )
+    # Make the ranking unambiguous: higher index, more plays.
+    for index in range(10):
+        for _ in range(index + 1):
+            app.state.plays.record(
+                track_id=f"hot_{index:02d}",
+                title=f"Hot {index:02d}",
+                artist="Pager",
+                album="Paging",
+                artwork=None,
+                tier="hires_24bit",
+                client=f"10.1.0.{index}",
+            )
+
+    first = (await http.get("/api/plays", params={"limit": 10})).json()
+    assert len(first["top"]) == 10
+    assert first["top_total"] == 40
+    assert first["has_more"] is True
+    assert first["next_offset"] == 10
+    # Ranked first: the track with the most plays.
+    assert first["top"][0]["id"] == "hot_09"
+
+    seen: list[str] = [row["id"] for row in first["top"]]
+    offset = first["next_offset"]
+    while True:
+        page = (
+            await http.get("/api/plays", params={"limit": 10, "offset": offset})
+        ).json()
+        # A follow-up page is rows only; the stats and chart are already drawn.
+        assert set(page.keys()) == {
+            "addon",
+            "url",
+            "top",
+            "top_total",
+            "has_more",
+            "next_offset",
+        }
+        assert "recent" not in page, "a follow-up page is rows only"
+        seen.extend(row["id"] for row in page["top"])
+        if not page["has_more"]:
+            break
+        offset = page["next_offset"]
+
+    assert len(seen) == 40, "every rank is reachable by scrolling"
+    assert len(set(seen)) == 40, "no page repeats a row"
+    assert seen[0] == "hot_09"
+
+    # Past the end: empty page, not an error.
+    beyond = (
+        await http.get("/api/plays", params={"limit": 10, "offset": 40})
+    ).json()
+    assert beyond["top"] == []
+    assert beyond["has_more"] is False
 
 
 @pytest.mark.asyncio

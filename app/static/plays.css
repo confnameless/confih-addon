@@ -1617,3 +1617,174 @@
     border: 1px solid ButtonText;
   }
 }
+
+/* ── paging: placeholder cards and the tail of the ranking ─────────────────
+   The ranking keeps loading as the list scrolls. While a page is in flight the
+   list shows cards shaped like the ones arriving, so the wait reads as work
+   rather than as a stall, and the reader's eye already knows where the card
+   will land. */
+
+.plays-pager {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.9rem 1.25rem 0.35rem;
+}
+
+.plays-pager-end,
+.plays-pager-more {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--ink-3);
+  letter-spacing: 0.01em;
+}
+
+/* Three dots that walk while the next page is in flight. They are the only
+   thing moving in the tail, so they read as "working", not as decoration. */
+.plays-pager.is-loading .plays-pager-more::after {
+  content: '';
+  display: inline-block;
+  width: 1.1em;
+  margin-left: 0.35em;
+  text-align: left;
+  animation: pager-dots 1.2s steps(1, end) infinite;
+  content: '···';
+  opacity: 0.7;
+}
+
+@keyframes pager-dots {
+  0% { clip-path: inset(0 100% 0 0); }
+  25% { clip-path: inset(0 66% 0 0); }
+  50% { clip-path: inset(0 33% 0 0); }
+  75%, 100% { clip-path: inset(0 0 0 0); }
+}
+
+.plays-pager-retry {
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--ink);
+  padding: 0.5rem 1rem;
+  min-height: 44px;
+  border-radius: 999px;
+  border: 1px solid var(--edge);
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.plays-pager-retry:hover {
+  border-color: var(--edge-2);
+}
+
+/* A placeholder is a real card made of blocks: same grid, same padding, same
+   height on this screen, so the list does not jump when the answer lands. */
+.track-row.is-skeleton {
+  pointer-events: none;
+  animation: skeleton-row-in 320ms var(--ease, ease-out) both;
+  animation-delay: calc(var(--i, 0) * 38ms);
+}
+
+@keyframes skeleton-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.skeleton-block {
+  position: relative;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.07);
+  /* Palette-derived where supported: this file is dark-only today, but the
+     placeholder should follow the ink colour, not a hardcoded white. */
+  background: color-mix(in oklab, var(--ink) 9%, transparent);
+  border-radius: 0.4rem;
+  /* The blocks breathe while the request is open: slow enough to be calm,
+     fast enough that a stalled request is visibly still trying. */
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+  animation-delay: calc(var(--i, 0) * 45ms);
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+.track-row.is-skeleton .track-pos {
+  height: 0.85rem;
+  min-width: 1.4rem;
+}
+
+.track-row.is-skeleton .track-cover {
+  width: 52px;
+  height: 52px;
+  border-radius: 0.55rem;
+}
+
+.track-row.is-skeleton .track-metric {
+  height: 0.9rem;
+  min-width: 3rem;
+}
+
+.skeleton-line {
+  height: 0.8rem;
+  width: 58%;
+}
+
+.skeleton-line-short {
+  height: 0.62rem;
+  width: 34%;
+  margin-top: 0.45rem;
+}
+
+.skeleton-bar {
+  height: 0.35rem;
+  width: 100%;
+  margin-top: 0.6rem;
+  border-radius: 999px;
+}
+
+/* One sweep across every block in a card instead of one per block: the card
+   reads as a single piece of work rather than a dozen blinking rectangles. */
+.track-row.is-skeleton .skeleton-block::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.16),
+    transparent
+  );
+  animation: skeleton-sweep 1.5s ease-in-out infinite;
+}
+
+@keyframes skeleton-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .track-row.is-skeleton,
+  .skeleton-block,
+  .track-row.is-skeleton .skeleton-block::after,
+  .plays-pager.is-loading .plays-pager-more::after {
+    animation: none;
+  }
+  .skeleton-block {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.09);
+  }
+}
+
+@media (max-width: 640px) {
+  .plays-pager {
+    padding: 0.75rem 0.75rem 0.25rem;
+  }
+}
