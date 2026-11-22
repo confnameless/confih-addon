@@ -9,7 +9,7 @@ from asgi_lifespan import LifespanManager
 
 from app.main import create_app
 
-from .conftest import FakeQobuz, make_settings
+from .conftest import STREAM_CD, FakeQobuz, make_settings
 
 
 class DualMockBackend:
@@ -358,3 +358,109 @@ async def test_direct_tidal_stream_remembers_track_meta(
             top = plays_resp.json()["top"]
             assert top[0]["title"] == "One More Time"
             assert top[0]["artwork"].startswith("/art/")
+
+
+@pytest.mark.asyncio
+async def test_a_cd_master_on_qobuz_loses_to_tidals_hi_res_copy(tmp_path) -> None:
+    # `max` means "best these catalogues can do". Qobuz holding only 16-bit must
+    # not settle the request while Tidal holds the 24-bit master.
+    admin_tok = "a" * 32
+    settings = make_settings(tmp_path, stats_token=admin_tok, primary_provider="qobuz")
+    fake_q = FakeQobuz()
+    for format_id in (27, 7, 6):
+        fake_q.stream_data[format_id] = STREAM_CD
+    dual = DualMockBackend(fake_q)
+    app = create_app(settings, transport=httpx.MockTransport(dual))
+
+    async with LifespanManager(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            await client.post(
+                "/internal/admin/tidal/add",
+                headers={"X-Admin-Token": admin_tok},
+                json={"access_token": "tidal-tok-123", "label": "Tidal Main"},
+            )
+            await client.get("/search", params={"q": "one more time", "quality": "max"})
+
+            response = await client.get("/stream/5966783", params={"quality": "max"})
+            body = response.json()
+
+    assert response.status_code == 200
+    assert body["url"] == "https://sp-pr-cf.audio.tidal.com/direct/77889900.flac"
+    assert body["bitDepth"] == 24
+    assert body["sampleRate"] == 96000
+
+
+@pytest.mark.asyncio
+async def test_a_hi_res_master_on_qobuz_never_asks_tidal(tmp_path) -> None:
+    admin_tok = "a" * 32
+    settings = make_settings(tmp_path, stats_token=admin_tok, primary_provider="qobuz")
+    fake_q = FakeQobuz()
+    dual = DualMockBackend(fake_q)
+    app = create_app(settings, transport=httpx.MockTransport(dual))
+
+    async with LifespanManager(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            await client.post(
+                "/internal/admin/tidal/add",
+                headers={"X-Admin-Token": admin_tok},
+                json={"access_token": "tidal-tok-123", "label": "Tidal Main"},
+            )
+            await client.get("/search", params={"q": "one more time", "quality": "max"})
+            response = await client.get("/stream/5966783", params={"quality": "max"})
+
+    assert response.status_code == 200
+    assert response.json()["bitDepth"] == 24
+    assert dual.get_track_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_a_lossless_request_is_answered_without_the_second_platform(tmp_path) -> None:
+    # Only the hi-res rung is worth a second provider call: CD quality is CD
+    # quality on both services, so the request must not pay for the check.
+    admin_tok = "a" * 32
+    settings = make_settings(tmp_path, stats_token=admin_tok, primary_provider="qobuz")
+    fake_q = FakeQobuz()
+    for format_id in (27, 7, 6):
+        fake_q.stream_data[format_id] = STREAM_CD
+    dual = DualMockBackend(fake_q)
+    app = create_app(settings, transport=httpx.MockTransport(dual))
+
+    async with LifespanManager(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            await client.post(
+                "/internal/admin/tidal/add",
+                headers={"X-Admin-Token": admin_tok},
+                json={"access_token": "tidal-tok-123", "label": "Tidal Main"},
+            )
+            await client.get("/search", params={"q": "one more time", "quality": "lossless"})
+            response = await client.get("/stream/5966783", params={"quality": "lossless"})
+
+    assert response.status_code == 200
+    assert response.json()["bitDepth"] == 16
+    assert dual.get_track_calls == 0
+
+
+def test_rejected_accounts_queue_behind_healthy_ones() -> None:
+    # A pool of expired tokens must not fill the probe budget: the working
+    # account has to be asked first, or the play lands on the other platform.
+    from app.pool import ProviderPool
+
+    class _Account:
+        def __init__(self, healthy: bool) -> None:
+            self.is_healthy = healthy
+
+    clients = [
+        ("dead-1", "Dead One", _Account(False)),
+        ("dead-2", "Dead Two", _Account(False)),
+        ("live", "Live", _Account(True)),
+    ]
+
+    ordered = ProviderPool._order_by_capability(clients, {})
+
+    assert [account_id for account_id, _, _ in ordered] == ["live", "dead-1", "dead-2"]

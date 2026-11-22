@@ -126,6 +126,15 @@ def _target_bit_depth(tier: str) -> int:
     return 0
 
 
+def _stream_score(stream: AddonStream) -> tuple[int, int, int]:
+    """Rank renditions the way a listener would: depth, then rate, then mix."""
+    return (
+        int(stream.bitDepth or 0),
+        int(stream.sampleRate or 0),
+        int(bool(stream.isAtmos)),
+    )
+
+
 def _stream_expiry(seconds: int = 3600) -> str:
     """ISO-8601 UTC timestamp for when a signed stream URL stops working.
 
@@ -1180,6 +1189,15 @@ class ProviderPool:
                 stream, is_atmos = await self._resolve_tidal_direct(
                     track_id, tier, dash_base_url=dash_base_url, atmos=atmos
                 )
+                if atmos == "strict":
+                    return ResolvedStream(
+                        stream=stream, provider="tidal", is_atmos=is_atmos
+                    )
+                better = await self._better_on_other_platform(
+                    stream, track_id, tier, dash_base_url=dash_base_url, atmos=atmos
+                )
+                if better is not None:
+                    return ResolvedStream(stream=better, provider="qobuz")
                 return ResolvedStream(stream=stream, provider="tidal", is_atmos=is_atmos)
             except Exception as tidal_exc:
                 if not (self.auto_failover and self.has_healthy_qobuz):
@@ -1227,6 +1245,15 @@ class ProviderPool:
             if atmos == "strict":
                 # Asked only for an immersive mix; Qobuz has none.
                 raise QobuzNotFound("No immersive mix for this track")
+            better = await self._better_on_other_platform(
+                stream, clean_qobuz_id, tier, dash_base_url=dash_base_url, atmos=atmos
+            )
+            if better is not None:
+                return ResolvedStream(
+                    stream=better,
+                    provider="tidal",
+                    is_atmos=getattr(better, "isAtmos", False),
+                )
             return ResolvedStream(stream=stream, provider="qobuz")
         except Exception as qobuz_exc:
             if not (self.auto_failover and self.has_healthy_tidal):
@@ -1265,6 +1292,62 @@ class ProviderPool:
                 )
             raise qobuz_exc
 
+    async def _better_on_other_platform(
+        self,
+        stream: AddonStream,
+        track_id: str,
+        tier: str,
+        *,
+        dash_base_url: str = "",
+        atmos: str = "auto",
+    ) -> AddonStream | None:
+        """Return the other platform's rendition, but only when it is better.
+
+        `max` means "the best these catalogues can do", and the two services do
+        not hold the same masters: an album Qobuz keeps at 16-bit is often
+        24-bit on Tidal, and the reverse happens just as often. So a platform
+        only settles the request when it reaches the rung; below it, the other
+        one gets a say and the better rendition wins.
+        """
+        target = _target_bit_depth(tier)
+        if not self.auto_failover or not target:
+            return None
+        if int(stream.bitDepth or 0) >= target:
+            return None
+        from_qobuz = not track_id.startswith("tidal:")
+        if from_qobuz and not self.has_healthy_tidal:
+            return None
+        if not from_qobuz and not self.has_healthy_qobuz:
+            return None
+        try:
+            if from_qobuz:
+                other = await self._failover_to_tidal(
+                    track_id, tier, dash_base_url=dash_base_url, atmos=atmos
+                )
+            else:
+                other = await self._failover_to_qobuz(track_id, tier)
+        except Exception as exc:
+            log.debug("cross-platform check failed for %s: %s", track_id, exc)
+            return None
+        if other is None:
+            # Absent from the other catalogue, which is not a fault.
+            return None
+        if atmos == "off" and other.isAtmos:
+            # The listener picked the stereo row; an immersive mix is not an
+            # upgrade for them.
+            return None
+        if _stream_score(other) <= _stream_score(stream):
+            return None
+        log.info(
+            "stream: %s served from the other platform (%s-bit/%s Hz beats %s-bit/%s Hz)",
+            track_id,
+            other.bitDepth,
+            other.sampleRate,
+            stream.bitDepth,
+            stream.sampleRate,
+        )
+        return other
+
     @staticmethod
     def _order_by_capability(
         clients: list[tuple[str, str, Any]], low_res: dict[str, float]
@@ -1272,12 +1355,20 @@ class ProviderPool:
         """Put accounts that recently delivered Hi-Res ahead of the rest.
 
         The pool order is round-robin for fairness, but probing is only useful
-        when the account can actually serve the requested rendition.
+        when the account can actually serve the requested rendition. Accounts
+        whose token the provider already rejected go last: a pool of expired
+        tokens would otherwise fill the whole probe budget and the one working
+        account would never be asked.
         """
         now = time.monotonic()
-        capable = [c for c in clients if low_res.get(c[0], 0.0) <= now]
-        limited = [c for c in clients if low_res.get(c[0], 0.0) > now]
-        return capable + limited
+
+        def healthy(client: Any) -> bool:
+            return bool(getattr(client, "is_healthy", True))
+
+        capable = [c for c in clients if low_res.get(c[0], 0.0) <= now and healthy(c[2])]
+        limited = [c for c in clients if low_res.get(c[0], 0.0) > now and healthy(c[2])]
+        rejected = [c for c in clients if not healthy(c[2])]
+        return capable + limited + rejected
 
     @staticmethod
     def _note_capability(
@@ -1311,10 +1402,10 @@ class ProviderPool:
             try:
                 resolved = await client.resolve(track_id, tier)
             except QobuzNotFound as exc:
-                # The catalogue does not hold this track at all; another account
-                # would give the same answer.
+                # "Nothing here" is one account's answer, not the pool's: regions
+                # and licences differ, so the probe budget decides.
                 last_err = exc
-                break
+                continue
             except Exception as exc:
                 last_err = exc
                 continue
