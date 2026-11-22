@@ -5,9 +5,15 @@
 #   docker compose -f docker-compose.vpn.yml -f docker-compose.tunnel.yml \
 #     up -d --build
 #
-# This published copy is redacted: the live test host keeps its real path secret
-# (and tunnel credentials) in its own copy on the server. Do not copy this file
-# over the server's copy.
+# This is the *production* stack: one addon service, one tunnel, no staging
+# container. Every setting comes from .env on the host (ADDON_NAME,
+# ADDON_ID, ADDON_VERSION, auth, path secret), so what runs here is whatever
+# that file says — never a value baked into this file.
+#
+# A separate staging host can still be started on top of this one:
+#
+#   docker compose -f docker-compose.vpn.yml -f docker-compose.tunnel.yml \
+#     -f docker-compose.test.yml up -d addon-test
 #
 # The tunnel container connects to http://addon:8000 over the Compose network.
 # It does not use Caddy and does not publish 80/443. Cloudflare terminates TLS;
@@ -29,51 +35,6 @@ services:
       # directly to the internet.
       - "127.0.0.1:8000:8000"
 
-  addon-test:
-    build: .
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:8001:8000"
-    networks:
-      - addon
-    depends_on:
-      vpn:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      DATA_DIR: /data
-      TRUST_PROXY_HEADERS: "true"
-      QOBUZ_PROXY_URL: "http://vpn:8888"
-      PUBLIC_BASE_URL: "https://test-bitchord.confih.tech"
-      ADDON_HOSTS: "test-bitchord.confih.tech"
-      ADDON_AUTH_ENABLED: "false"
-      CHECK_VALID_LOSSLESS: "0"
-      ADDON_NAME: "Confih Hi-Res Test"
-      ADDON_ID: "app.bitchord.confih.test"
-      # Redacted in the published copy of this file.
-      ADDON_PATH_SECRET: "${ADDON_TEST_PATH_SECRET:-}"
-      # No demo data on the test host: it reflects real usage only.
-      DONATE_DEMO: "false"
-      # Real donation addresses for the test host (same wallet as production).
-      DONATE_BTC: "bc1qwjuu4j35wuj95l0t6y676us55tf238jrrvg0ts"
-      DONATE_SOL: "BiqDpAFGfkbnS2UqqnrSE19rGSZZGfTjoTWe1uvL1PV5"
-      DONATE_POLYGON: "0x876cF516c35802aa3A6d09d72Ac466F01D10C51e"
-    # Its own volume: seeding test plays here can never touch the production
-    # ledger, and two processes stop rewriting the same plays.json.
-    volumes:
-      - addon_test_data:/data
-    healthcheck:
-      test: ["CMD", "python", "scripts/healthcheck.py"]
-      interval: 30s
-      timeout: 5s
-      start_period: 30s
-      retries: 3
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-
   tunnel:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
@@ -87,10 +48,5 @@ services:
     depends_on:
       addon:
         condition: service_healthy
-      addon-test:
-        condition: service_healthy
     networks:
       - addon
-
-volumes:
-  addon_test_data:

@@ -47,13 +47,17 @@ what the provider actually returned, never from what was asked for.
 | Setting | Requested | If the track is not hi-res |
 |---|---|---|
 | `max` *(default)* | 24/192 → 24/96 → 16/44.1 FLAC → MP3 320 | labelled honestly, e.g. `Lossless · 16-bit / 44.1 kHz` |
-| `hires` | same ladder as `max` | same |
 | `lossless` | 16/44.1 FLAC → MP3 320 | MP3 is labelled MP3 |
 | `high` | MP3 320 | — |
 | `low` | MP3 320 (the lowest both providers serve) | — |
 
 A CD-only album requested at `max` says CD lossless. A track that fell back to MP3 says MP3.
 No hi-res label ever lands on a file that is not hi-res.
+
+`max` is deliberately the only "best" rung: it covers Hi-Res *and* Dolby Atmos. Older
+clients may still send `quality=hires`, which is treated exactly like `max`; it is not offered
+as a separate setting because BitChord remembers a listener's pick per addon, and a rung list
+that changes under them silently changes what they get.
 
 ## How it works
 

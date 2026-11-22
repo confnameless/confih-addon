@@ -1,0 +1,59 @@
+# Optional staging host. Never part of the production stack.
+#
+#   docker compose -f docker-compose.vpn.yml -f docker-compose.tunnel.yml \
+#     -f docker-compose.test.yml up -d addon-test
+#
+# This file exists only so a change can be exercised against the real providers
+# before it reaches the public host. Nothing here is used by a normal
+# `up -d`, and no production service depends on it.
+#
+# Its settings are deliberately the *opposite* of production where that makes
+# testing easier (auth off, a known path secret, its own name/version/volume),
+# so a staging run can never be mistaken for the public service and can never
+# write into the production ledger.
+
+services:
+  addon-test:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8001:8000"
+    networks:
+      - addon
+    depends_on:
+      vpn:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /data
+      TRUST_PROXY_HEADERS: "true"
+      QOBUZ_PROXY_URL: "http://vpn:8888"
+      PUBLIC_BASE_URL: "https://test-bitchord.confih.tech"
+      ADDON_HOSTS: "test-bitchord.confih.tech"
+      ADDON_AUTH_ENABLED: "false"
+      CHECK_VALID_LOSSLESS: "0"
+      ADDON_NAME: "Confih Hi-Res Test"
+      ADDON_VERSION: "${ADDON_TEST_VERSION:-2.6.1}"
+      ADDON_ID: "app.bitchord.confih.test"
+      ADDON_PATH_SECRET: "${ADDON_TEST_PATH_SECRET:-}"
+      # Donation wallets are not repeated here: staging reads them from .env
+      # through env_file, so the test host shows exactly what the public host
+      # shows instead of a second copy that can drift.
+    # Its own volume: seeding test plays here can never touch the production
+    # ledger, and two processes stop rewriting the same plays.json.
+    volumes:
+      - addon_test_data:/data
+    healthcheck:
+      test: ["CMD", "python", "scripts/healthcheck.py"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  addon_test_data:
