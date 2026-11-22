@@ -69,6 +69,9 @@ class AddonStream(BaseModel):
     bitrate: int | None = None
     isAtmos: bool = False
     audioMode: str | None = None
+    # ISO-8601 UTC, when the signed URL stops working. Hosts that read it can
+    # avoid handing out a dead link; BitChord assumes an hour when it is absent.
+    expiresAt: str | None = None
     error: str | None = None
 
 

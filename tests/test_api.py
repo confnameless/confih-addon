@@ -25,7 +25,6 @@ async def test_manifest_contract(http: httpx.AsyncClient) -> None:
     assert quality["default"] == "max"
     assert [option["value"] for option in quality["options"]] == [
         "max",
-        "hires",
         "lossless",
         "high",
         "low",

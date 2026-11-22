@@ -493,6 +493,20 @@
         return;
       }
 
+      /* The cascade is a desktop flourish: it lays out the incoming panel,
+         measures every .rise in it, then staggers their entrance. On a phone
+         that is the whole page-change stutter, so there the swap is instant. */
+      var coarse = window.matchMedia('(pointer: coarse)').matches;
+      var narrow = (window.innerWidth || 0) < 900;
+      if (coarse || narrow) {
+        Array.prototype.forEach.call(activePane.querySelectorAll('.rise'), function (el) {
+          el.setAttribute('data-reveal-seen', '1');
+          showStatic(el);
+        });
+        scan();
+        return;
+      }
+
       if (routeLockTimer) window.clearTimeout(routeLockTimer);
       var viewH = window.innerHeight || document.documentElement.clientHeight || 800;
       var animatedItems = [];
@@ -734,14 +748,33 @@
       }
     }
 
+    function assetUrl(bundle) {
+      var version = bootField('asset_version');
+      return '/assets/' + bundle + '.js' + (version ? '?v=' + version : '');
+    }
+
+    /* Warm the HTTP cache without running anything: a prefetched <link> is
+       fetched at low priority and stays inert, so the status page never pays
+       for plays.js's parse, execute or its /api/plays call. */
+    function prefetch(bundle) {
+      var href = assetUrl(bundle);
+      if (loaded[bundle] || document.querySelector('link[rel="prefetch"][href="' + href + '"]')) {
+        return;
+      }
+      var link = document.createElement('link');
+      link.rel = 'prefetch';
+      link.as = 'script';
+      link.href = href;
+      document.head.appendChild(link);
+    }
+
     function ensure(bundle) {
       if (loaded[bundle] || document.querySelector('script[data-confih-bundle="' + bundle + '"]')) {
         return;
       }
       loaded[bundle] = true;
       var script = document.createElement('script');
-      var version = bootField('asset_version');
-      script.src = '/assets/' + bundle + '.js' + (version ? '?v=' + version : '');
+      script.src = assetUrl(bundle);
       script.setAttribute('data-confih-bundle', bundle);
       script.defer = true;
       document.head.appendChild(script);
@@ -754,12 +787,25 @@
 
     /* Ask for the bundle the moment a visitor shows intent, not before: a
        hover or a focus on Plays is a reliable bet, and the click then lands
-       on a panel whose data is already in flight. */
+       on a panel whose data is already in flight. On touch there is no hover,
+       so a tap would otherwise pay for script + data before the panel fills;
+       instead the bundle is fetched at idle once the first page is settled. */
     var intent = document.querySelector('.site-nav a[data-nav-view="plays"]');
     if (intent) {
       ['pointerenter', 'focus', 'touchstart'].forEach(function (type) {
         intent.addEventListener(type, function () { ensure('plays'); }, { passive: true });
       });
+    }
+
+    var bootView = document.body && document.body.dataset.initialView;
+    if (bootView !== 'plays' && navigator.onLine !== false) {
+      var connection = navigator.connection || {};
+      if (!connection.saveData) {
+        var idle = window.requestIdleCallback || function (fn) {
+          return window.setTimeout(fn, 1800);
+        };
+        idle(function () { prefetch('plays'); }, { timeout: 4000 });
+      }
     }
   })();
 

@@ -148,6 +148,9 @@ _DEMO_SUPPORT_ASSETS: tuple[dict[str, Any], ...] = (
         "symbol": "BTC",
         "logo": "coin-btc",
         "accepts": ["btc"],
+        # Placeholders only. Demo mode exists so a fresh deployment can see the
+        # page shape; it must never display a wallet somebody controls, or
+        # "demo data" becomes a request to send real money.
         "address": "bc1qexample8v6z0v9w4m2k7c5n3p8r6t4y2u0s7d5f",
     },
     {
@@ -157,7 +160,8 @@ _DEMO_SUPPORT_ASSETS: tuple[dict[str, Any], ...] = (
         "symbol": "SOL",
         "logo": "coin-sol",
         "accepts": ["sol", "usdc", "usdt"],
-        "address": "BiqDpAFGfkbnS2UqqnrSE19rGSZZGfTjoTWe1uvL1PV5",
+        # Solana's incinerator: valid base58, provably unspendable.
+        "address": "1nc1nerator11111111111111111111111111111111",
     },
     {
         "id": "polygon",
@@ -166,7 +170,8 @@ _DEMO_SUPPORT_ASSETS: tuple[dict[str, Any], ...] = (
         "symbol": "USDC",
         "logo": "coin-polygon",
         "accepts": ["usdc", "usdt"],
-        "address": "0x876cF516c35802aa3A6d09d72Ac466F01D10C51e",
+        # The well-known burn address: valid hex, provably unspendable.
+        "address": "0x000000000000000000000000000000000000dEaD",
     },
 )
 
@@ -2145,3 +2150,87 @@ def render_admin_vault_html(*, path_secret: bool = False, script_nonce: str = ""
 
 
 ADMIN_VAULT_HTML = render_admin_vault_html()
+
+
+def render_error_page(
+    status: int,
+    title: str,
+    message: str,
+    *,
+    home_href: str = "/status",
+    addon_name: str = "",
+    addon_version: str = "",
+) -> str:
+    """A human page for a failed request.
+
+    API clients still get the JSON error envelope; a browser that mistypes a
+    URL should get a page it can leave through, not a machine payload. No
+    scripts: the document is static and safe under the nonce CSP.
+    """
+    est = html.escape
+    return (
+        "<!DOCTYPE html>\n"
+        '<html lang="en" data-theme="dark">\n'
+        "<head>\n"
+        '  <meta charset="UTF-8" />\n'
+        '  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />\n'
+        f"  <title>{est(str(status))} — {est(title)} — Confih Gateway</title>\n"
+        '  <meta name="color-scheme" content="dark" />\n'
+        f'  <link rel="icon" href="/assets/confih-mark.svg?v={ASSET_VERSION}" type="image/svg+xml" />\n'
+        "  <style>\n"
+        "    * { box-sizing: border-box; }\n"
+        "    body {\n"
+        "      margin: 0; min-height: 100dvh; display: grid; place-items: center;\n"
+        "      padding: max(1.5rem, env(safe-area-inset-top)) max(1.25rem, env(safe-area-inset-right))\n"
+        "        max(1.5rem, env(safe-area-inset-bottom)) max(1.25rem, env(safe-area-inset-left));\n"
+        "      background: #09090b radial-gradient(80% 42% at 50% -8%, rgba(255,255,255,0.05), transparent 70%);\n"
+        "      color: #fafafa; line-height: 1.6;\n"
+        "      font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;\n"
+        "      -webkit-font-smoothing: antialiased;\n"
+        "    }\n"
+        "    .plate { width: min(34rem, 100%); }\n"
+        "    .brand { display: inline-flex; align-items: center; gap: 0.55rem; margin-bottom: 2.25rem; "
+        "text-decoration: none; color: #fafafa; }\n"
+        "    .brand img { height: 30px; width: auto; }\n"
+        "    .brand span { font-size: 0.82rem; letter-spacing: 0.14em; text-transform: uppercase; color: #8e8e98; }\n"
+        "    .code {\n"
+        "      margin: 0 0 0.75rem; font-size: clamp(3rem, 12vw, 4.5rem); font-weight: 650;\n"
+        "      line-height: 1; letter-spacing: -0.03em;\n"
+        "      background: linear-gradient(180deg, #ffffff, #b2b2bc); -webkit-background-clip: text; "
+        "background-clip: text; color: transparent;\n"
+        "    }\n"
+        "    h1 { margin: 0 0 0.6rem; font-size: clamp(1.35rem, 5vw, 1.75rem); letter-spacing: -0.015em; }\n"
+        "    p { margin: 0 0 2rem; max-width: 30rem; color: #b2b2bc; }\n"
+        "    .actions { display: flex; flex-wrap: wrap; gap: 0.75rem; }\n"
+        "    .button {\n"
+        "      display: inline-flex; align-items: center; min-height: 44px; padding: 0.65rem 1.35rem;\n"
+        "      border-radius: 999px; font-size: 0.92rem; font-weight: 560; text-decoration: none;\n"
+        "      -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;\n"
+        "    }\n"
+        "    .button.primary { background: linear-gradient(180deg, #ffffff, #e4e4e8); color: #09090b; "
+        "border: 1px solid rgba(255,255,255,0.72); }\n"
+        "    .button.ghost { color: #fafafa; border: 1px solid rgba(255,255,255,0.14); }\n"
+        "    footer { margin-top: 2.75rem; font-size: 0.78rem; color: #787882; }\n"
+        "  </style>\n"
+        "</head>\n"
+        "<body>\n"
+        "  <main class=\"plate\">\n"
+        f'    <a class="brand" href="{est(home_href)}">'
+        f'<img src="/assets/confih-logo.svg?v={ASSET_VERSION}" alt="Confih" width="82" height="30" />'
+        "<span>Gateway</span></a>\n"
+        f'    <p class="code">{est(str(status))}</p>\n'
+        f"    <h1>{est(title)}</h1>\n"
+        f"    <p>{est(message)}</p>\n"
+        '    <div class="actions">\n'
+        f'      <a class="button primary" href="{est(home_href)}">Back to status</a>\n'
+        '      <a class="button ghost" href="/about">About this gateway</a>\n'
+        "    </div>\n"
+        + (
+            f"    <footer>{est(addon_name)} · v{est(addon_version)}</footer>\n"
+            if addon_name
+            else ""
+        )
+        + "  </main>\n"
+        "</body>\n"
+        "</html>\n"
+    )

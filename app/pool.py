@@ -19,9 +19,11 @@ import logging
 import os
 import re
 import secrets
+import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +61,9 @@ _MAX_TRACK_META = 8192
 _DEAD_RETRY_SECONDS = 300
 _MAX_DASH_MANIFESTS = 16384
 _DASH_TTL_SECONDS = 7200  # 2 hours so paused listeners don't hit 404 when resuming
+# Counts alone do not bound memory: one MPD can be tens of kilobytes. Cap the
+# total held bytes as well, so the cache cannot grow to hundreds of megabytes.
+_DASH_MAX_BYTES_DEFAULT = 48 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -103,6 +108,36 @@ class ResolvedStream:
     @property
     def sample_rate(self) -> int | None:
         return self.stream.sampleRate
+
+
+def _target_bit_depth(tier: str) -> int:
+    """The bit depth a rendition must reach to satisfy ``tier``.
+
+    `max`/`hires` want the hi-res master (24-bit); CD lossless is satisfied by
+    16-bit; the lossy rungs accept whatever comes back.
+    """
+    from .quality import normalize_quality
+
+    normalised = normalize_quality(tier)
+    if normalised in ("max", "hires", "atmos"):
+        return 24
+    if normalised == "lossless":
+        return 16
+    return 0
+
+
+def _stream_expiry(seconds: int = 3600) -> str:
+    """ISO-8601 UTC timestamp for when a signed stream URL stops working.
+
+    Provider URLs live about an hour; the spec lets an addon state it so a host
+    can avoid handing out a dead link, and the reference host assumes an hour
+    when it is absent.
+    """
+    from datetime import datetime, timedelta
+
+    return (
+        datetime.now(UTC) + timedelta(seconds=seconds)
+    ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _norm_text(s: str) -> str:
@@ -296,9 +331,29 @@ class ProviderPool:
         self._track_sequences: OrderedDict[str, str] = OrderedDict()
         self._last_alert_time: dict[str, float] = {}
 
+        # accounts.json is written from worker threads; this serialises them
+        self._pending_state: dict[str, Any] | None = None
+        self._state_write_lock = threading.Lock()
+
         # Short-lived MPEG-DASH manifest cache for Tidal Hi-Res streams
         # manifest_id -> (expires_at_mono, mpd_xml_str)
         self._dash_manifests: OrderedDict[str, tuple[float, str]] = OrderedDict()
+        self._dash_bytes = 0
+        self._dash_max_bytes = (
+            max(4, int(getattr(settings, "dash_cache_max_mb", 48))) * 1024 * 1024
+        )
+
+        # Playback-learned sequences: what a listener actually played next.
+        # The old pre-cache guessed from search-result adjacency, which is not
+        # play order, and spent a provider call per stream to do it.
+        self._last_play: OrderedDict[str, tuple[str, float]] = OrderedDict()
+        self._learned_next: OrderedDict[str, str] = OrderedDict()
+
+        # Accounts that answered a hi-res request with a CD rendition. They are
+        # tried last for a while, so the extra probe that finds the 24-bit
+        # master is paid once per account rather than on every request.
+        self._qobuz_lores: dict[str, float] = {}
+        self._tidal_lores: dict[str, float] = {}
 
         # Active Tidal Device Auth flow state
         self.pending_device_auth: DeviceAuthPending | None = None
@@ -346,7 +401,11 @@ class ProviderPool:
             await qclient.stop()
         for tclient in list(self.tidal_clients.values()):
             await tclient.stop()
-        self.stats.save(force=True)
+        # Flush both state files before the loop goes away: their writes are
+        # normally deferred to worker threads, and a deferred write here
+        # would be lost at shutdown.
+        await asyncio.to_thread(self.save_state)
+        await asyncio.to_thread(self.stats.save, True)
         self._started = False
 
     async def _keepalive_loop(self) -> None:
@@ -447,50 +506,77 @@ class ProviderPool:
             log.warning("Failed to load accounts pool from %s: %s", self.accounts_path, exc)
 
     def save_state(self) -> None:
+        """Snapshot accounts in memory; write the file off the event loop.
+
+        Token refreshes and admin calls run on the event loop, so the atomic
+        disk write is handed to a worker thread instead of stalling streams.
+        """
         try:
-            self.accounts_path.parent.mkdir(parents=True, exist_ok=True)
-            # Sync latest tokens from active clients back into entries
-            for aid, tclient in self.tidal_clients.items():
-                if aid in self.tidal_entries:
-                    self.tidal_entries[aid].update(
-                        {
-                            "access_token": tclient.access_token,
-                            "refresh_token": tclient.refresh_token,
-                            "expires_at": tclient.expires_at,
-                            "user_id": tclient.user_id,
-                            "country_code": tclient.country_code,
-                            "subscription": tclient.subscription,
-                            "client_id": tclient.client_id,
-                            "client_secret": tclient.client_secret,
-                        }
-                    )
-            for aid, qclient in self.qobuz_clients.items():
-                if aid in self.extra_qobuz:
-                    snap = qclient.health_snapshot()
-                    self.extra_qobuz[aid]["user_auth_token"] = qclient._token
-                    self.extra_qobuz[aid]["user_id"] = qclient._user_id
-                    if snap.get("subscription"):
-                        self.extra_qobuz[aid]["subscription"] = snap["subscription"]
-
-            self._register_pool_secrets()
-
-            payload = {
-                "primary_provider": self.primary_provider,
-                "auto_failover": self.auto_failover,
-                "primary_qobuz_enabled": self.primary_qobuz_enabled,
-                "primary_qobuz_label": self.primary_qobuz_label,
-                "qobuz_accounts": list(self.extra_qobuz.values()),
-                "tidal_accounts": list(self.tidal_entries.values()),
-                "updated_at": int(time.time()),
-            }
-            tmp = self.accounts_path.with_suffix(".tmp")
-            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(payload, handle, indent=2)
-                handle.write("\n")
-            os.replace(tmp, self.accounts_path)
+            self._pending_state = self._state_payload()
         except Exception as exc:
             log.warning("Could not persist accounts.json: %s", self.accounts_path, exc)
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._write_state()
+        else:
+            loop.create_task(asyncio.to_thread(self._write_state))
+
+    def _state_payload(self) -> dict[str, Any]:
+        # Sync latest tokens from active clients back into entries
+        for aid, tclient in self.tidal_clients.items():
+            if aid in self.tidal_entries:
+                self.tidal_entries[aid].update(
+                    {
+                        "access_token": tclient.access_token,
+                        "refresh_token": tclient.refresh_token,
+                        "expires_at": tclient.expires_at,
+                        "user_id": tclient.user_id,
+                        "country_code": tclient.country_code,
+                        "subscription": tclient.subscription,
+                        "client_id": tclient.client_id,
+                        "client_secret": tclient.client_secret,
+                    }
+                )
+        for aid, qclient in self.qobuz_clients.items():
+            if aid in self.extra_qobuz:
+                snap = qclient.health_snapshot()
+                self.extra_qobuz[aid]["user_auth_token"] = qclient._token
+                self.extra_qobuz[aid]["user_id"] = qclient._user_id
+                if snap.get("subscription"):
+                    self.extra_qobuz[aid]["subscription"] = snap["subscription"]
+
+        self._register_pool_secrets()
+
+        # Plain copies: the write happens on another thread while this one
+        # keeps managing the live entry dicts.
+        return {
+            "primary_provider": self.primary_provider,
+            "auto_failover": self.auto_failover,
+            "primary_qobuz_enabled": self.primary_qobuz_enabled,
+            "primary_qobuz_label": self.primary_qobuz_label,
+            "qobuz_accounts": [dict(entry) for entry in self.extra_qobuz.values()],
+            "tidal_accounts": [dict(entry) for entry in self.tidal_entries.values()],
+            "updated_at": int(time.time()),
+        }
+
+    def _write_state(self) -> None:
+        """Atomic replace of accounts.json; the only blocking part."""
+        with self._state_write_lock:
+            payload = self._pending_state
+            if payload is None:
+                return
+            try:
+                self.accounts_path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = self.accounts_path.with_suffix(".tmp")
+                fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    json.dump(payload, handle, indent=2)
+                    handle.write("\n")
+                os.replace(tmp, self.accounts_path)
+            except Exception as exc:
+                log.warning("Could not persist accounts.json: %s", self.accounts_path, exc)
 
     def _build_qobuz_client(self, acc: dict[str, Any]) -> QobuzClient:
         aid = str(acc["id"])
@@ -631,10 +717,22 @@ class ProviderPool:
     def store_dash_manifest(self, mpd_xml: str) -> str:
         digest = hashlib.sha256(mpd_xml.encode("utf-8")).hexdigest()[:24]
         now = time.monotonic()
+        size = len(mpd_xml.encode("utf-8"))
+        previous = self._dash_manifests.get(digest)
+        if previous is not None:
+            self._dash_bytes -= len(previous[1].encode("utf-8"))
+        if size > self._dash_max_bytes:
+            # One manifest larger than the whole budget: serve it, never store it.
+            return digest
         self._dash_manifests[digest] = (now + _DASH_TTL_SECONDS, mpd_xml)
+        self._dash_bytes += size
         self._dash_manifests.move_to_end(digest)
-        while len(self._dash_manifests) > _MAX_DASH_MANIFESTS:
-            self._dash_manifests.popitem(last=False)
+        while self._dash_manifests and (
+            len(self._dash_manifests) > _MAX_DASH_MANIFESTS
+            or self._dash_bytes > self._dash_max_bytes
+        ):
+            _, evicted = self._dash_manifests.popitem(last=False)
+            self._dash_bytes -= len(evicted[1].encode("utf-8"))
         return digest
 
     def get_dash_manifest(self, manifest_id: str) -> str | None:
@@ -644,10 +742,12 @@ class ProviderPool:
         expires_at, xml_str = item
         if time.monotonic() > expires_at:
             self._dash_manifests.pop(manifest_id, None)
+            self._dash_bytes -= len(xml_str.encode("utf-8"))
             return None
         return xml_str
 
     def record_track_sequence(self, prev_id: str, next_id: str) -> None:
+        """Remember a sequence actually observed in playback."""
         self._track_sequences[prev_id] = next_id
         while len(self._track_sequences) > 1024:
             self._track_sequences.popitem(last=False)
@@ -656,12 +756,96 @@ class ProviderPool:
         clean = track_id.removeprefix("qobuz:")
         return self._track_sequences.get(track_id) or self._track_sequences.get(clean)
 
+    def record_play(self, client: str, track_id: str) -> None:
+        """Learn what this listener plays next, from playback itself.
+
+        Only a real consecutive play teaches a sequence, so the pre-cache stops
+        resolving whatever merely sat below this row in a search answer.
+        """
+        if not client or not track_id:
+            return
+        now = time.monotonic()
+        previous = self._last_play.get(client)
+        if previous is not None:
+            prev_id, at = previous
+            # 15 minutes: an album side, not a whole session. Beyond that the
+            # "next" track says more about what the listener browsed than
+            # about what follows this one.
+            if prev_id and prev_id != track_id and now - at <= 900:
+                self.record_track_sequence(prev_id, track_id)
+        self._last_play[client] = (track_id, now)
+        self._last_play.move_to_end(client)
+        while len(self._last_play) > 4096:
+            self._last_play.popitem(last=False)
+
     async def notify_account_issue(self, provider: str, label: str, error_msg: str) -> None:
         log.warning("Account issue on %s (%s): %s", provider, label, error_msg)
 
     # ── Unified Search with Auto-Failover ────────────────────────────────
 
-    async def search(self, query: str, tier: str, limit: int) -> AddonSearchResponse:
+    async def search(
+        self,
+        query: str,
+        tier: str,
+        limit: int,
+        *,
+        title: str = "",
+        artist: str = "",
+    ) -> AddonSearchResponse:
+        """Catalogue search, re-ranked for a known recording when asked.
+
+        BitChord 1.10+ sends the target's own `title` and `artist` beside `q`
+        when it is resolving a track it already knows. `q` folds both into one
+        string, so the addon cannot tell which words name the singer — given
+        them apart it can put the right recording first, which is what the
+        host uses: it preserves this order and takes rows from the top.
+        """
+        payload = await self._search_providers(query, tier, limit)
+        if not (title or artist) or not payload.tracks:
+            return payload
+        ranked = self._rank_for_target(payload.tracks, title=title, artist=artist)
+        if ranked == payload.tracks:
+            return payload
+        return AddonSearchResponse(tracks=ranked)
+
+    @staticmethod
+    def _rank_for_target(
+        rows: list[AddonTrack], *, title: str = "", artist: str = ""
+    ) -> list[AddonTrack]:
+        """Stable re-rank: exact recording first, everything else untouched.
+
+        Deliberately conservative — it never drops a row, because a provider's
+        relevance occasionally finds the track under a title this comparison
+        does not recognise.
+        """
+        want_base, want_version = _title_parts(title) if title else ("", "")
+        want_artist = _norm_text(artist) if artist else ""
+        if not want_base and not want_artist:
+            return rows
+
+        def score(row: AddonTrack) -> int:
+            total = 0
+            if want_base:
+                base, version = _title_parts(row.title)
+                if base == want_base:
+                    total += 4
+                    if version == want_version:
+                        total += 2
+                    elif not version or not want_version:
+                        total += 1
+                elif _norm_text(row.title) == _norm_text(title):
+                    total += 3
+            if want_artist and row.artist:
+                if _artists_match(artist, row.artist):
+                    total += 3
+                elif _norm_text(row.artist) == want_artist:
+                    total += 3
+            return total
+
+        scored = sorted(enumerate(rows), key=lambda pair: (-score(pair[1]), pair[0]))
+        return [row for _, row in scored]
+
+    async def _search_providers(self, query: str, tier: str, limit: int) -> AddonSearchResponse:
         has_q = self.has_healthy_qobuz
         has_t = self.has_healthy_tidal
 
@@ -946,7 +1130,8 @@ class ProviderPool:
 
     @staticmethod
     def _map_tidal_addon_track(track: TidalTrack, tier: str) -> AddonTrack:
-        is_atmos = "DOLBY_ATMOS" in track.audio_modes
+        modes = list(track.audio_modes) if track.audio_modes else ["STEREO"]
+        is_atmos = "DOLBY_ATMOS" in modes
         labels = search_labels(
             hires_streamable=track.hires_streamable,
             requested_quality=tier,
@@ -963,8 +1148,10 @@ class ProviderPool:
             albumArtworkURL=track.artwork_url,
             format=fmt,
             audioQuality=labels.audio_quality,
-            audioMode=track.audio_modes[0] if track.audio_modes else "STEREO",
-            audioModes=list(track.audio_modes) if track.audio_modes else ["STEREO"],
+            # audioMode is the primary mix, so it must not read STEREO on a row
+            # that also offers an immersive one (BitChord scores rows on it).
+            audioMode="DOLBY_ATMOS" if is_atmos else modes[0],
+            audioModes=modes,
             isrc=track.isrc,
         )
 
@@ -976,14 +1163,22 @@ class ProviderPool:
         tier: str,
         *,
         dash_base_url: str = "",
+        atmos: str = "auto",
     ) -> ResolvedStream:
+        """Resolve one playable stream, honouring the immersive-audio hint.
+
+        `atmos` is the spec's `?atmos=` value, normalised: `auto` prefers an
+        immersive mix when the catalogue has one, `off` must never substitute
+        one (the listener picked the stereo row), `strict` treats a missing
+        immersive mix as a miss rather than answering with stereo.
+        """
         is_tidal_id = track_id.startswith("tidal:")
         clean_qobuz_id = track_id.removeprefix("qobuz:")
 
         if is_tidal_id:
             try:
                 stream, is_atmos = await self._resolve_tidal_direct(
-                    track_id, tier, dash_base_url=dash_base_url
+                    track_id, tier, dash_base_url=dash_base_url, atmos=atmos
                 )
                 return ResolvedStream(stream=stream, provider="tidal", is_atmos=is_atmos)
             except Exception as tidal_exc:
@@ -1001,6 +1196,9 @@ class ProviderPool:
                 )
                 fallback = await self._failover_to_qobuz(track_id, tier)
                 if fallback is not None:
+                    # Qobuz carries no immersive mixes: strict mode is a miss.
+                    if atmos == "strict":
+                        raise tidal_exc
                     return ResolvedStream(
                         stream=fallback,
                         provider="qobuz",
@@ -1026,6 +1224,9 @@ class ProviderPool:
                         is_atmos=is_atmos,
                     )
             stream = await self._resolve_qobuz_direct(clean_qobuz_id, tier)
+            if atmos == "strict":
+                # Asked only for an immersive mix; Qobuz has none.
+                raise QobuzNotFound("No immersive mix for this track")
             return ResolvedStream(stream=stream, provider="qobuz")
         except Exception as qobuz_exc:
             if not (self.auto_failover and self.has_healthy_tidal):
@@ -1051,7 +1252,7 @@ class ProviderPool:
                 qobuz_exc,
             )
             fallback = await self._failover_to_tidal(
-                clean_qobuz_id, tier, dash_base_url=dash_base_url
+                clean_qobuz_id, tier, dash_base_url=dash_base_url, atmos=atmos
             )
             if fallback is not None:
                 is_atmos = getattr(fallback, "isAtmos", False)
@@ -1064,33 +1265,84 @@ class ProviderPool:
                 )
             raise qobuz_exc
 
+    @staticmethod
+    def _order_by_capability(
+        clients: list[tuple[str, str, Any]], low_res: dict[str, float]
+    ) -> list[tuple[str, str, Any]]:
+        """Put accounts that recently delivered Hi-Res ahead of the rest.
+
+        The pool order is round-robin for fairness, but probing is only useful
+        when the account can actually serve the requested rendition.
+        """
+        now = time.monotonic()
+        capable = [c for c in clients if low_res.get(c[0], 0.0) <= now]
+        limited = [c for c in clients if low_res.get(c[0], 0.0) > now]
+        return capable + limited
+
+    @staticmethod
+    def _note_capability(
+        low_res: dict[str, float], account_id: str, depth: int, target: int
+    ) -> None:
+        """Remember for half an hour that this account is below the rung."""
+        if target and depth and depth < target:
+            low_res[account_id] = time.monotonic() + 1800.0
+        elif target and depth >= target:
+            low_res.pop(account_id, None)
+
     async def _resolve_qobuz_direct(self, track_id: str, tier: str) -> AddonStream:
+        """Resolve from the account pool, preferring the best rendition.
+
+        Accounts are not equal: a subscription or a region can answer format 27
+        with 16-bit. Returning the first account that answers at all therefore
+        handed listeners CD quality while another account in the same pool held
+        the 24-bit master. So an answer below the requested rung is kept as a
+        fallback and the next account is asked; the first answer that meets the
+        rung wins immediately.
+        """
         clients = self.active_qobuz_clients()
         if not clients:
             raise QobuzNotFound("No active Qobuz accounts configured")
+        target = _target_bit_depth(tier)
+        probe_count = max(1, int(getattr(self.settings, "resolve_probe_accounts", 3)))
+        probe = self._order_by_capability(clients, self._qobuz_lores)[:probe_count]
+        best: tuple[AddonStream, int] | None = None
         last_err: Exception | None = None
-        for _, _, client in clients:
+        for account_id, _, client in probe:
             try:
                 resolved = await client.resolve(track_id, tier)
-                meta = stream_meta(
-                    resolved.format_id,
-                    bit_depth=resolved.bit_depth,
-                    sampling_rate_khz=resolved.sampling_rate_khz,
-                    mime_type=resolved.mime_type,
-                )
-                return AddonStream(url=resolved.url, **meta.as_addon_fields())
             except QobuzNotFound as exc:
+                # The catalogue does not hold this track at all; another account
+                # would give the same answer.
                 last_err = exc
                 break
             except Exception as exc:
                 last_err = exc
                 continue
+            meta = stream_meta(
+                resolved.format_id,
+                bit_depth=resolved.bit_depth,
+                sampling_rate_khz=resolved.sampling_rate_khz,
+                mime_type=resolved.mime_type,
+            )
+            stream = AddonStream(
+                url=resolved.url,
+                **meta.as_addon_fields(),
+                expiresAt=_stream_expiry(),
+            )
+            depth = int(resolved.bit_depth or 0)
+            self._note_capability(self._qobuz_lores, account_id, depth, target)
+            if best is None or depth > best[1]:
+                best = (stream, depth)
+            if depth >= target:
+                return stream
+        if best is not None:
+            return best[0]
         if last_err is not None:
             raise last_err
         raise QobuzNotFound("Track not available on Qobuz")
 
     async def _resolve_tidal_direct(
-        self, track_id: str, tier: str, *, dash_base_url: str = ""
+        self, track_id: str, tier: str, *, dash_base_url: str = "", atmos: str = "auto"
     ) -> tuple[AddonStream, bool]:
         clients = self.active_tidal_clients()
         if not clients:
@@ -1117,9 +1369,25 @@ class ProviderPool:
                 except Exception:
                     continue
         has_atmos_meta = bool(meta and "DOLBY_ATMOS" in getattr(meta, "audio_modes", ()))
-        try_atmos = has_atmos_meta or tier.lower() in ("atmos", "spatial", "dolby", "dolby_atmos", "dolby-atmos")
+        tier_wants_atmos = tier.lower() in (
+            "atmos",
+            "spatial",
+            "dolby",
+            "dolby_atmos",
+            "dolby-atmos",
+        )
+        # `off` is a listener who chose the stereo row: never ask Tidal for the
+        # immersive asset, so it cannot come back as one.
+        try_atmos = atmos != "off" and (has_atmos_meta or tier_wants_atmos)
+        # Tidal accounts differ too: a non-hi-res subscription answers
+        # HI_RES_LOSSLESS with a 16-bit LOSSLESS rendition. Keep the best
+        # answer seen and only stop early when it meets the requested rung.
+        target = _target_bit_depth(tier)
+        probe_count = max(1, int(getattr(self.settings, "resolve_probe_accounts", 3)))
+        probe = self._order_by_capability(clients, self._tidal_lores)[:probe_count]
+        best: tuple[int, AddonStream, bool] | None = None
         last_err: Exception | None = None
-        for _, _, client in clients:
+        for account_id, _, client in probe:
             try:
                 try:
                     resolved = await client.resolve(
@@ -1130,16 +1398,37 @@ class ProviderPool:
                 except TypeError:
                     resolved = await client.resolve(track_id, tier)
                 is_atmos = bool(getattr(resolved, "is_atmos", False))
-                return (
-                    self._tidal_to_addon_stream(resolved, dash_base_url=dash_base_url),
-                    is_atmos,
-                )
+                if atmos == "off" and is_atmos:
+                    # Tidal answered with the immersive asset even with the hint
+                    # withheld. One retry, then skip this account: the listener
+                    # picked the stereo row, so Atmos is a substitution.
+                    try:
+                        resolved = await client.resolve(track_id, tier, audio_mode=None)
+                        is_atmos = bool(getattr(resolved, "is_atmos", False))
+                    except Exception:
+                        pass
+                    if is_atmos:
+                        continue
+                if atmos == "strict" and not is_atmos:
+                    continue
+                stream = self._tidal_to_addon_stream(resolved, dash_base_url=dash_base_url)
+                depth = int(getattr(resolved, "bit_depth", 0) or 0)
+                self._note_capability(self._tidal_lores, account_id, depth, target)
+                score = (depth, 1 if is_atmos else 0)
+                if best is None or score > best[0]:
+                    best = (score, stream, is_atmos)
+                if is_atmos or depth >= target:
+                    return stream, is_atmos
             except TidalNotFound as exc:
                 last_err = exc
                 break
             except Exception as exc:
                 last_err = exc
                 continue
+        if best is not None:
+            return best[1], best[2]
+        if atmos == "strict":
+            raise TidalNotFound("No immersive mix for this track")
         if last_err is not None:
             raise last_err
         raise TidalNotFound("Track not available on Tidal")
@@ -1165,7 +1454,8 @@ class ProviderPool:
             bitDepth=resolved.bit_depth,
             bitrate=resolved.bitrate,
             isAtmos=resolved.is_atmos,
-            audioMode="DOLBY_ATMOS" if resolved.is_atmos else None,
+            audioMode="DOLBY_ATMOS" if resolved.is_atmos else "STEREO",
+            expiresAt=_stream_expiry(),
         )
 
     def _strict_failover(self) -> tuple[bool, float]:
@@ -1177,7 +1467,12 @@ class ProviderPool:
         )
 
     async def _failover_to_tidal(
-        self, qobuz_track_id: str, tier: str, *, dash_base_url: str = ""
+        self,
+        qobuz_track_id: str,
+        tier: str,
+        *,
+        dash_base_url: str = "",
+        atmos: str = "auto",
     ) -> AddonStream | None:
         if not self.has_healthy_tidal:
             return None
@@ -1251,6 +1546,8 @@ class ProviderPool:
                 is_atmos_cand = (
                     "DOLBY_ATMOS" in getattr(chosen, "audio_modes", ())
                 ) or tier.lower() in ("atmos", "spatial", "dolby", "dolby_atmos", "dolby-atmos")
+                if atmos == "off":
+                    is_atmos_cand = False
                 try:
                     resolved = await tclient.resolve(
                         chosen.id,
@@ -1259,6 +1556,10 @@ class ProviderPool:
                     )
                 except TypeError:
                     resolved = await tclient.resolve(chosen.id, tier)
+                if atmos == "strict" and not getattr(resolved, "is_atmos", False):
+                    continue
+                if atmos == "off" and getattr(resolved, "is_atmos", False):
+                    continue
                 return self._tidal_to_addon_stream(resolved, dash_base_url=dash_base_url)
             except Exception as exc:
                 log.debug("Tidal failover candidate failed: %s", exc)

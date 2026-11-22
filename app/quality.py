@@ -14,9 +14,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 # Values are deliberately lower-case and match what the manifest sends.
+# This is the production list: one "best" rung that covers hi-res and Atmos.
+# Do not add a separate hi-res entry — BitChord stores the listener's pick per
+# addon, and a list that changes under them silently moves what they get.
 QUALITY_OPTIONS: tuple[tuple[str, str], ...] = (
-    ("max", "Best available (Hi-Res & Dolby Atmos)"),
-    ("hires", "Hi-Res (24-bit, up to 192 kHz)"),
+    ("max", "Hi-Res & Dolby Atmos (24-bit / 192 kHz FLAC)"),
     ("lossless", "CD Lossless (16-bit / 44.1 kHz FLAC)"),
     ("high", "High Fidelity (320 kbps AAC / MP3)"),
     ("low", "Data Saver (96–128 kbps)"),
@@ -38,18 +40,16 @@ FORMAT_IDS = {5: "MP3 320", 6: "FLAC CD", 7: "FLAC Hi-Res 96", 27: "FLAC Hi-Res 
 def normalize_quality(value: str | None) -> str:
     """Map a BitChord tier or picker value onto one of our plans.
 
-    ``hires`` is a separate rung from ``max`` because listeners ask for one or
-    the other. Both sit on the same Qobuz format ladder today — the difference
-    is what BitChord requests and how the choice is labelled, not which format
-    ids we are willing to accept.
+    `hires` is still accepted as a request value for older clients and direct
+    API calls, but it is not a manifest rung: it means the same thing as
+    `max`, which is what the picker offers.
     """
     text = (value or "").strip().lower()
     if not text:
         return "max"
-    if text in {"hires", "hi-res", "hi_res", "high-res", "highres", "hi res"}:
-        return "hires"
     if text in {
         "max", "best", "auto", "maximum",
+        "hires", "hi-res", "hi_res", "high-res", "highres", "hi res",
         "atmos", "spatial", "dolby", "dolby_atmos", "dolby-atmos",
     }:
         return "max"

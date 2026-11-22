@@ -52,6 +52,7 @@ from .dashboard import (
     build_support_payload,
     render_admin_vault_html,
     render_app_shell,
+    render_error_page,
 )
 from .logging_setup import configure_logging, register_secrets
 from .models import (
@@ -109,7 +110,6 @@ _HTML_CSP_TEMPLATE = (
     "script-src {script_src}; "
     "connect-src 'self'"
 )
-_HTML_CSP = _HTML_CSP_TEMPLATE.format(script_src="'self' 'unsafe-inline'")
 
 
 def _page_response(
@@ -127,7 +127,12 @@ def _page_response(
     turns the revalidation into a bodyless 304.
     """
     body = content.encode("utf-8")
-    etag = 'W/"' + hashlib.blake2b(body, digest_size=10).hexdigest() + '"'
+    nonce = (getattr(request.state, "csp_nonce", "") or "").encode("utf-8")
+    # The CSP nonce is fresh per render, so hashing the raw body would give
+    # every response a different ETag and turn revalidation into a full
+    # re-download every time. Hash with the nonce neutralised instead.
+    stable = body.replace(nonce, b"{{nonce}}") if nonce else body
+    etag = 'W/"' + hashlib.blake2b(stable, digest_size=10).hexdigest() + '"'
     merged: dict[str, str] = {"Cache-Control": "no-cache", "ETag": etag}
     merged.update(headers or {})
     if (request.headers.get("if-none-match") or "").strip() == etag:
@@ -143,13 +148,18 @@ def create_app(
     settings = settings or Settings()
     prefix = settings.route_prefix
 
-    search_cache: SingleFlightCache[tuple[str, str, int], AddonSearchResponse] = (
+    search_cache: SingleFlightCache[tuple[str, str, int, str, str], AddonSearchResponse] = (
         SingleFlightCache(settings.cache_max_entries, settings.search_cache_ttl_seconds)
     )
-    stream_cache: SingleFlightCache[tuple[str, str], ResolvedStream] = SingleFlightCache(
+    stream_cache: SingleFlightCache[tuple[str, str, str], ResolvedStream] = SingleFlightCache(
         settings.cache_max_entries, settings.stream_cache_ttl_seconds
     )
     limiter = SlidingWindowLimiter(settings.rate_limit_per_minute)
+    # Auth is checked before the main limiter (an unauthenticated request must
+    # never touch a provider), which left the 401 path itself unlimited: a
+    # public addon URL is a free load generator for anything that does not send
+    # credentials. This counts only *refusals*, so real clients are unaffected.
+    auth_failure_limiter = SlidingWindowLimiter(settings.auth_failure_per_minute)
     # Public JSON is cheap but not free, and it is the one surface an anonymous
     # client can hammer. The pages poll it a handful of times a minute, so a
     # generous ceiling only ever catches automated scraping.
@@ -171,6 +181,7 @@ def create_app(
         BitChordAuth(hosts=settings.hosts) if settings.addon_auth_enabled else None
     )
     manifest = _build_manifest(settings)
+    manifest_bytes = json.dumps(manifest, separators=(",", ":")).encode("utf-8")
     qobuz = QobuzClient(settings, transport=transport)
     pool = ProviderPool(settings, qobuz, stats, transport=transport)
 
@@ -314,7 +325,10 @@ def create_app(
             .strip()
             .lower()
         )
-        if request.url.scheme == "https" or forwarded_proto == "https":
+        # Only believe a proxy's proto when proxies are actually trusted;
+        # otherwise a direct HTTP client could pin HSTS for this origin.
+        trusted_proto = forwarded_proto if settings.trust_proxy_headers else ""
+        if request.url.scheme == "https" or trusted_proto == "https":
             response.headers.setdefault(
                 "Strict-Transport-Security",
                 "max-age=31536000; includeSubDomains",
@@ -340,6 +354,26 @@ def create_app(
                 )
                 if not result.ok:
                     status = result.status
+                    allowed, retry_after = await auth_failure_limiter.hit(
+                        f"auth-fail:{_client_ip(request, settings)}"
+                    )
+                    if not allowed:
+                        status = 429
+                        return _secure_response(
+                            request,
+                            JSONResponse(
+                                {
+                                    "error": "rate_limited",
+                                    "code": "rate_limited",
+                                    "message": "Too many unauthenticated requests; retry shortly.",
+                                },
+                                status_code=429,
+                                headers={
+                                    "Retry-After": str(retry_after),
+                                    "Cache-Control": "no-store",
+                                },
+                            ),
+                        )
                     return _secure_response(
                         request,
                         Response(
@@ -406,34 +440,51 @@ def create_app(
             try:
                 response = await call_next(request)
                 status = response.status_code
+                if request.method == "HEAD":
+                    response = await _head_only(response)
                 return _secure_response(request, response)
             except RuntimeError as exc:
                 if "No response returned" in str(exc):
                     status = 499
-                    return _error(
-                        499,
-                        "client_abort",
-                        "Client closed connection before response completed",
+                    return _secure_response(
+                        request,
+                        _error(
+                            499,
+                            "client_abort",
+                            "Client closed connection before response completed",
+                        ),
                     )
                 raise
         finally:
             elapsed_ms = (time.monotonic() - t0) * 1000.0
-            stats.end(status, elapsed_ms=elapsed_ms, addon=is_addon)
+            stats.end(status, elapsed_ms=elapsed_ms, addon=is_addon, endpoint=ep_name)
 
     # ── Manifest ──────────────────────────────────────────────────────────
-    @app.get(manifest_path)
+    @app.api_route(manifest_path, methods=["GET", "HEAD"])
     async def get_manifest() -> Response:
-        return _json(manifest, cache="public, max-age=600")
+        # The manifest never changes at runtime; serialising it once keeps 100k+
+        # requests a week from re-encoding the same dict.
+        return Response(
+            content=manifest_bytes,
+            media_type="application/json",
+            headers={"Cache-Control": "public, max-age=600"},
+        )
 
     # ── Search ────────────────────────────────────────────────────────────
-    @app.get(search_path)
+    @app.api_route(search_path, methods=["GET", "HEAD"])
     async def search(
         request: Request,
         q: str = "",
         quality: str = "",
         limit: int | None = None,
+        title: str = "",
+        artist: str = "",
     ) -> Response:
         query = q.strip()
+        if request.method == "HEAD":
+            # A HEAD must not cost a provider call: answer the metadata question
+            # without searching anything.
+            return _head_reply()
         if not query:
             return _json(
                 AddonSearchResponse().model_dump(exclude_none=True),
@@ -451,10 +502,26 @@ def create_app(
         if limit is not None:
             count = max(1, min(limit, 50))
 
-        key = (f"{pool.primary_provider}:{query.casefold()}", tier, count)
+        # BitChord 1.10+ sends the recording's own title and artist beside `q`
+        # (q mixes the two together, so an addon cannot tell which words name
+        # the singer). They re-rank the answer and are part of the cache key:
+        # the same q aimed at a different recording is a different question.
+        want_title = title.strip()[:_MAX_QUERY_LENGTH]
+        want_artist = artist.strip()[:_MAX_QUERY_LENGTH]
+
+        key = (
+            f"{pool.primary_provider}:{query.casefold()}",
+            tier,
+            count,
+            want_title.casefold(),
+            want_artist.casefold(),
+        )
         try:
             payload, cached = await search_cache.get_or_create(
-                key, lambda: pool.search(query, tier, count)
+                key,
+                lambda: pool.search(
+                    query, tier, count, title=want_title, artist=want_artist
+                ),
             )
         except (QobuzGeoBlocked, QobuzError):
             raise
@@ -466,26 +533,34 @@ def create_app(
         if not cached:
             log.debug("search %r quality=%s -> %d rows", query, tier, len(payload.tracks))
 
-        if payload.tracks:
-            for i in range(len(payload.tracks) - 1):
-                pool.record_track_sequence(payload.tracks[i].id, payload.tracks[i + 1].id)
-
         return _json(payload.model_dump(exclude_none=True), cache="private, max-age=300")
 
     # ── Stream ────────────────────────────────────────────────────────────
-    @app.get(f"{prefix}/stream/{{track_id}}")
+    @app.api_route(f"{prefix}/stream/{{track_id}}", methods=["GET", "HEAD"])
     async def stream(
         request: Request,
         track_id: str,
         quality: str = "",
+        atmos: str = "",
     ) -> Response:
+        if request.method == "HEAD":
+            # Same rule as /search: a HEAD is not a reason to resolve a stream.
+            return _head_reply()
         if not _TRACK_ID_RE.fullmatch(track_id):
             raise QobuzNotFound("Not one of this addon's track ids")
         tier = normalize_quality(quality)
+        # The spec's immersive-audio hint. `auto` (or absent) means "Atmos if
+        # you have it, stereo otherwise"; `0` is a listener who picked the
+        # stereo row by hand and must not be handed the immersive mix; `1` is
+        # strict mode, where a track with no immersive mix is a miss rather
+        # than a stereo answer.
+        atmos_mode = _atmos_mode(atmos)
         dash_base = _public_display_url(settings, request).rstrip("/") + prefix
         resolved, cached = await stream_cache.get_or_create(
-            (track_id, tier),
-            lambda: pool.resolve_stream(track_id, tier, dash_base_url=dash_base),
+            (track_id, tier, atmos_mode),
+            lambda: pool.resolve_stream(
+                track_id, tier, dash_base_url=dash_base, atmos=atmos_mode
+            ),
         )
         stats.stream_cache(cached)
         # A fallback resolution is one event even if the same signed stream is
@@ -527,9 +602,10 @@ def create_app(
             )
             await asyncio.to_thread(plays.save, False)
         log.info(
-            "stream: track=%s req_quality=%s -> quality=%s format=%s codec=%s (%s-bit/%s Hz) provider=%s failover=%s cached=%s",
+            "stream: track=%s req_quality=%s atmos=%s -> quality=%s format=%s codec=%s (%s-bit/%s Hz) provider=%s failover=%s cached=%s",
             track_id,
             tier,
+            atmos_mode,
             payload.quality,
             payload.format,
             payload.codec,
@@ -540,19 +616,28 @@ def create_app(
             cached,
         )
 
-        # Ahead-of-time pre-cache: pre-resolve next song in album / playlist sequence
-        next_track_id = pool.get_next_track(track_id)
-        if next_track_id:
-            asyncio.create_task(
-                _precache_stream(
-                    pool, stream_cache, stats, next_track_id, tier, dash_base
+        # Learn what actually plays next for this listener, so the pre-cache
+        # below is a prediction from playback rather than from the order a
+        # search happened to return rows in.
+        pool.record_play(_client_ip(request, settings), track_id)
+
+        # Ahead-of-time pre-cache: resolve the track this sequence usually leads
+        # to. Off by default switch, and never a guess when nothing is known.
+        if settings.precache_enabled:
+            next_track_id = pool.get_next_track(track_id)
+            if next_track_id and next_track_id != track_id:
+                asyncio.create_task(
+                    _precache_stream(
+                        pool, stream_cache, stats, next_track_id, tier, dash_base, atmos_mode
+                    )
                 )
-            )
 
         return _json(payload.model_dump(exclude_none=True), cache="no-store")
 
     # ── MPEG-DASH manifest endpoint for Tidal Hi-Res streams ──────────────
-    @app.get(f"{prefix}/dash/{{manifest_id}}.mpd", include_in_schema=False)
+    @app.api_route(
+        f"{prefix}/dash/{{manifest_id}}.mpd", methods=["GET", "HEAD"], include_in_schema=False
+    )
     async def get_dash_manifest(manifest_id: str) -> Response:
         if not _DASH_ID_RE.fullmatch(manifest_id):
             return _error(404, "not_found", "Manifest not found")
@@ -753,8 +838,8 @@ def create_app(
             coffee_url=settings.support_coffee_url,
         )
 
-    @app.get("/status", include_in_schema=False)
-    @app.get("/monitor", include_in_schema=False)
+    @app.api_route("/status", methods=["GET", "HEAD"], include_in_schema=False)
+    @app.api_route("/monitor", methods=["GET", "HEAD"], include_in_schema=False)
     async def status_page(request: Request) -> Response:
         return _page_response(
             request,
@@ -765,8 +850,8 @@ def create_app(
             ),
         )
 
-    @app.get("/support", include_in_schema=False)
-    @app.get("/support/", include_in_schema=False)
+    @app.api_route("/support", methods=["GET", "HEAD"], include_in_schema=False)
+    @app.api_route("/support/", methods=["GET", "HEAD"], include_in_schema=False)
     async def support_page(request: Request) -> Response:
         return _page_response(
             request,
@@ -778,8 +863,8 @@ def create_app(
             headers={"X-Robots-Tag": "noindex, nofollow"},
         )
 
-    @app.get("/about", include_in_schema=False)
-    @app.get("/about/", include_in_schema=False)
+    @app.api_route("/about", methods=["GET", "HEAD"], include_in_schema=False)
+    @app.api_route("/about/", methods=["GET", "HEAD"], include_in_schema=False)
     async def about_page(request: Request) -> Response:
         # The one page search engines may index: it explains what this is
         # without exposing anyone's listening or a wallet address.
@@ -814,11 +899,11 @@ def create_app(
             capabilities=_public_capabilities(),
         )
 
-    @app.get("/api/public-stats", include_in_schema=False)
+    @app.api_route("/api/public-stats", methods=["GET", "HEAD"], include_in_schema=False)
     async def public_stats(request: Request) -> Response:
         return _json(_current_public_stats_payload(request), cache="no-store")
 
-    @app.get("/api/overview", include_in_schema=False)
+    @app.api_route("/api/overview", methods=["GET", "HEAD"], include_in_schema=False)
     async def public_overview(request: Request) -> Response:
         stats_payload = _current_public_stats_payload(request)
         support_payload = build_support_payload(
@@ -871,7 +956,7 @@ def create_app(
             return Response(status_code=200, media_type="image/svg+xml", headers=headers)
         return Response(content=svg, media_type="image/svg+xml", headers=headers)
 
-    @app.get("/art/{key}", include_in_schema=False)
+    @app.api_route("/art/{key}", methods=["GET", "HEAD"], include_in_schema=False)
     async def artwork_image(key: str) -> Response:
         """Cover art, cached here so the browser never talks to a third party."""
         cached = await artwork.get(key)
@@ -888,7 +973,7 @@ def create_app(
             },
         )
 
-    @app.get("/api/plays", include_in_schema=False)
+    @app.api_route("/api/plays", methods=["GET", "HEAD"], include_in_schema=False)
     async def public_plays(
         request: Request,
         q: str = "",
@@ -910,11 +995,18 @@ def create_app(
             cache="no-store",
         )
 
-    @app.get("/plays", include_in_schema=False)
-    @app.get("/plays/", include_in_schema=False)
+    @app.api_route("/plays", methods=["GET", "HEAD"], include_in_schema=False)
+    @app.api_route("/plays/", methods=["GET", "HEAD"], include_in_schema=False)
     async def plays_page(request: Request) -> Response:
         if not settings.public_plays:
-            return _error(404, "not_found", "The public play feed is disabled")
+            return _error_response(
+                request,
+                404,
+                "not_found",
+                "The public play feed is disabled on this gateway.",
+                addon_name=settings.addon_name,
+                addon_version=settings.addon_version,
+            )
         return _page_response(
             request,
             _render_shell(
@@ -925,7 +1017,7 @@ def create_app(
             headers={"X-Robots-Tag": "noindex, nofollow"},
         )
 
-    @app.get("/api/support", include_in_schema=False)
+    @app.api_route("/api/support", methods=["GET", "HEAD"], include_in_schema=False)
     async def support_info() -> Response:
         return _json(
             build_support_payload(
@@ -995,9 +1087,9 @@ def create_app(
         health_paths.add(f"{prefix}/healthz")
         ready_paths.add(f"{prefix}/readyz")
     for path in sorted(health_paths):
-        app.add_api_route(path, health, methods=["GET"], include_in_schema=False)
+        app.add_api_route(path, health, methods=["GET", "HEAD"], include_in_schema=False)
     for path in sorted(ready_paths):
-        app.add_api_route(path, ready, methods=["GET"], include_in_schema=False)
+        app.add_api_route(path, ready, methods=["GET", "HEAD"], include_in_schema=False)
 
     # ── Optional traffic view ─────────────────────────────────────────────
     @app.get(stats_path, include_in_schema=False)
@@ -1017,6 +1109,16 @@ def create_app(
 
     # ── Local-Only Admin Control Plane + Hidden Web Vault ─────────────────
     vault_limiter = SlidingWindowLimiter(20)  # Max 20 failed vault password attempts/min per IP
+    admin_limiter = SlidingWindowLimiter(20)  # Same ceiling for /internal/admin
+
+    def _vault_secret() -> str:
+        """The vault's own password, or STATS_TOKEN when none is configured.
+
+        They used to be one value, which meant a leaked stats token also
+        granted account management. Separate them and the blast radius halves;
+        the fallback keeps existing deployments working unchanged.
+        """
+        return ((settings.vault_password or settings.stats_token) or "").strip().strip("'\"")
 
     def _require_local_admin(request: Request) -> Response | None:
         # 1. Never respond on /internal/admin if the request passed through Cloudflare Tunnel
@@ -1039,8 +1141,24 @@ def create_app(
             return _error(401, "unauthorized", "Unauthorized")
         return None
 
+    async def _guard_local_admin(request: Request) -> Response | None:
+        """Brute-force control for the local admin plane (it had none)."""
+        denied = _require_local_admin(request)
+        if denied is None:
+            return None
+        allowed, retry_after = await admin_limiter.hit(
+            f"admin-fail:{_client_ip(request, settings)}"
+        )
+        if not allowed:
+            return JSONResponse(
+                {"error": "rate_limited", "message": "Too many failed admin attempts"},
+                status_code=429,
+                headers={"Retry-After": str(retry_after), "Cache-Control": "no-store"},
+            )
+        return denied
+
     async def _require_vault_auth(request: Request) -> Response | None:
-        secret = (settings.stats_token or "").strip().strip("'\"")
+        secret = _vault_secret()
         if not secret:
             return _error(404, "not_found", "Not found")
         auth_header = request.headers.get("authorization") or ""
@@ -1132,7 +1250,7 @@ def create_app(
 
     @app.get("/internal/admin/summary", include_in_schema=False)
     async def admin_summary(request: Request) -> Response:
-        denied = _require_local_admin(request)
+        denied = await _guard_local_admin(request)
         if denied is not None:
             return denied
         return await _handle_admin_summary(request)
@@ -1148,7 +1266,7 @@ def create_app(
 
     @app.post("/internal/admin/qobuz/add", include_in_schema=False)
     async def admin_add_qobuz(request: Request) -> Response:
-        denied = _require_local_admin(request)
+        denied = await _guard_local_admin(request)
         if denied is not None:
             return denied
         body, err = await _parse_json_object(request)
@@ -1176,7 +1294,7 @@ def create_app(
 
     @app.post("/internal/admin/tidal/device-start", include_in_schema=False)
     async def admin_start_tidal_device(request: Request) -> Response:
-        denied = _require_local_admin(request)
+        denied = await _guard_local_admin(request)
         if denied is not None:
             return denied
         try:
@@ -1190,7 +1308,7 @@ def create_app(
 
     @app.post("/internal/admin/tidal/add", include_in_schema=False)
     async def admin_add_tidal(request: Request) -> Response:
-        denied = _require_local_admin(request)
+        denied = await _guard_local_admin(request)
         if denied is not None:
             return denied
         body, err = await _parse_json_object(request)
@@ -1214,7 +1332,7 @@ def create_app(
 
     @app.post("/internal/admin/accounts/{account_id}/toggle", include_in_schema=False)
     async def admin_toggle_account(account_id: str, request: Request) -> Response:
-        denied = _require_local_admin(request)
+        denied = await _guard_local_admin(request)
         if denied is not None:
             return denied
         res = pool.toggle_account(account_id)
@@ -1225,7 +1343,7 @@ def create_app(
 
     @app.post("/internal/admin/accounts/{account_id}/test", include_in_schema=False)
     async def admin_test_account(account_id: str, request: Request) -> Response:
-        denied = _require_local_admin(request)
+        denied = await _guard_local_admin(request)
         if denied is not None:
             return denied
         res = await pool.test_account(account_id)
@@ -1235,7 +1353,7 @@ def create_app(
 
     @app.delete("/internal/admin/accounts/{account_id}", include_in_schema=False)
     async def admin_delete_account(account_id: str, request: Request) -> Response:
-        denied = _require_local_admin(request)
+        denied = await _guard_local_admin(request)
         if denied is not None:
             return denied
         deleted = await pool.delete_account(account_id)
@@ -1246,7 +1364,7 @@ def create_app(
 
     @app.post("/internal/admin/routing", include_in_schema=False)
     async def admin_set_routing(request: Request) -> Response:
-        denied = _require_local_admin(request)
+        denied = await _guard_local_admin(request)
         if denied is not None:
             return denied
         body, err = await _parse_json_object(request)
@@ -1265,7 +1383,7 @@ def create_app(
 
     @app.post("/internal/admin/cache/clear", include_in_schema=False)
     async def admin_clear_cache(request: Request) -> Response:
-        denied = _require_local_admin(request)
+        denied = await _guard_local_admin(request)
         if denied is not None:
             return denied
         s_count = len(search_cache.cache)
@@ -1463,16 +1581,34 @@ def create_app(
         request: Request, exc: StarletteHTTPException
     ) -> Response:
         message = str(exc.detail) if exc.detail else "Request failed"
-        return JSONResponse(
-            {"error": "http_error", "code": str(exc.status_code), "message": message},
-            status_code=exc.status_code,
-            headers=getattr(exc, "headers", None) or {},
+        if _wants_html(request) and exc.status_code == 404:
+            message = (
+                "There is no page at this address. It may have moved, "
+                "or the link may be wrong."
+            )
+        response = _error_response(
+            request,
+            exc.status_code,
+            "http_error",
+            message,
+            addon_name=settings.addon_name,
+            addon_version=settings.addon_version,
         )
+        for key, value in (getattr(exc, "headers", None) or {}).items():
+            response.headers.setdefault(key, value)
+        return response
 
     @app.exception_handler(Exception)
     async def unhandled_error_handler(request: Request, exc: Exception) -> Response:
         log.exception("Unhandled error while serving %s", request.url.path)
-        return _error(500, "internal_error", "The addon hit an unexpected error.")
+        return _error_response(
+            request,
+            500,
+            "internal_error",
+            "The gateway hit an unexpected error. It is logged; trying again in a moment often works.",
+            addon_name=settings.addon_name,
+            addon_version=settings.addon_version,
+        )
 
     return app
 
@@ -1668,19 +1804,22 @@ def _public_display_url(
 
 async def _precache_stream(
     pool: ProviderPool,
-    stream_cache: SingleFlightCache[tuple[str, str], ResolvedStream],
+    stream_cache: SingleFlightCache[tuple[str, str, str], ResolvedStream],
     stats: TrafficStats,
     track_id: str,
     tier: str,
     dash_base: str,
+    atmos: str = "auto",
 ) -> None:
-    cache_key = (track_id, tier)
+    cache_key = (track_id, tier, atmos)
     if cache_key in stream_cache.cache:
         return
     try:
         _, cached = await stream_cache.get_or_create(
             cache_key,
-            lambda: pool.resolve_stream(track_id, tier, dash_base_url=dash_base),
+            lambda: pool.resolve_stream(
+                track_id, tier, dash_base_url=dash_base, atmos=atmos
+            ),
         )
         # A prefetch is not a listener. Only the dedicated counter moves, and
         # only when this task actually performed the resolution.
@@ -1688,6 +1827,21 @@ async def _precache_stream(
             stats.record_precache_resolution()
     except Exception:
         pass
+
+
+def _atmos_mode(raw: str) -> str:
+    """Normalise the spec's `atmos` hint into auto | off | strict.
+
+    `1`/`true` is strict mode (no immersive mix is a miss, not a stereo
+    answer); `0`/`false`/`off` is a listener who chose the stereo row; anything
+    else, including absent, is try-Atmos-then-stereo.
+    """
+    text = (raw or "").strip().lower()
+    if text in {"1", "true", "yes", "on", "strict"}:
+        return "strict"
+    if text in {"0", "false", "no", "off", "none", "never", "stereo"}:
+        return "off"
+    return "auto"
 
 
 async def _traffic_log_loop(
@@ -1703,6 +1857,80 @@ async def _traffic_log_loop(
             "traffic: %s",
             json.dumps(snapshot, separators=(",", ":"), sort_keys=True),
         )
+
+
+def _wants_html(request: Request) -> bool:
+    """True when the client is a browser navigating, not an API caller."""
+    return "text/html" in (request.headers.get("accept") or "").lower()
+
+
+_ERROR_TITLES = {
+    404: "This page is not here.",
+    405: "Wrong door.",
+    410: "That is gone.",
+    429: "Slow down a moment.",
+    500: "Something broke on our side.",
+    503: "The gateway is busy.",
+}
+
+
+def _error_response(
+    request: Request | None,
+    status: int,
+    code: str,
+    message: str,
+    *,
+    addon_name: str = "",
+    addon_version: str = "",
+) -> Response:
+    """JSON error envelope for API clients; a real page for browsers."""
+    if request is not None and _wants_html(request):
+        return HTMLResponse(
+            render_error_page(
+                status,
+                _ERROR_TITLES.get(status, "Request failed"),
+                message,
+                addon_name=addon_name,
+                addon_version=addon_version,
+            ),
+            status_code=status,
+            headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"},
+        )
+    return _error(status, code, message)
+
+
+async def _head_only(response: Response) -> Response:
+    """Answer HEAD with GET's exact headers and never a body (RFC 9110 §9.3.2).
+
+    Draining the body first lets the middleware's inner stream finish instead
+    of dangling once the reply is rebuilt as an empty response.
+    """
+    chunks: list[bytes] = []
+    iterator = getattr(response, "body_iterator", None)
+    if iterator is not None:
+        async for chunk in iterator:
+            chunks.append(chunk)
+    else:
+        chunks.append(getattr(response, "body", b"") or b"")
+    headers = {key: value for key, value in response.headers.items()}
+    if 200 <= response.status_code and response.status_code not in (204, 304):
+        headers.setdefault("content-length", str(sum(len(chunk) for chunk in chunks)))
+    return Response(status_code=response.status_code, headers=headers)
+
+
+def _head_reply() -> Response:
+    """200 for a HEAD on a JSON endpoint, with no work and no body.
+
+    The exact ``Content-Length`` of a signed stream reply is only known after
+    resolving it, and resolving on a HEAD would spend a provider call on
+    nothing. ``Content-Type`` and ``no-store`` are the parts a caller can act
+    on.
+    """
+    return Response(
+        status_code=200,
+        media_type="application/json",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 def _json(

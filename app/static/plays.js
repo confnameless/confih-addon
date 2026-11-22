@@ -812,22 +812,37 @@
         el('div', 'track-artist', [row.artist, row.album].filter(Boolean).join(' · '))
       );
 
+      /* The bar always travels with the name of what it is showing: a bare
+         five-pixel line under an artist reads as a rule on a phone, and a rule
+         that changes colour per row reads as a rendering bug. */
+      var quality = row.quality || [];
       var bar = el('div', 'track-quality');
       bar.setAttribute('role', 'img');
-      var breakdown = (row.quality || [])
+      var breakdown = quality
         .map(function (segment) {
           return Math.round(num(segment.share) * 100) + '% ' + segment.label;
         })
         .join(', ');
       bar.setAttribute('aria-label', breakdown || 'No quality data');
       if (breakdown) bar.title = 'Delivered quality: ' + breakdown;
-      (row.quality || []).forEach(function (segment) {
+      quality.forEach(function (segment) {
         var span = el('span');
         span.setAttribute('data-tier', segment.key);
         span.style.width = (num(segment.share) * 100).toFixed(2) + '%';
         bar.appendChild(span);
       });
-      names.appendChild(bar);
+
+      var qualityRow = el('div', 'track-quality-row');
+      qualityRow.appendChild(bar);
+      if (quality.length) {
+        var dominant = quality.reduce(function (best, segment) {
+          return num(segment.share) > num(best.share) ? segment : best;
+        }, quality[0]);
+        var tierLabel = el('span', 'track-tier', dominant.label || '');
+        tierLabel.setAttribute('data-tier', dominant.key);
+        qualityRow.appendChild(tierLabel);
+      }
+      names.appendChild(qualityRow);
       item.appendChild(names);
 
       /* One number per row. The listener count is deduplicated, so on a feed

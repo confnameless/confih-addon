@@ -65,7 +65,6 @@ async def test_public_stats_enrichment_and_zero_traffic_state(
     assert caps["primary_provider"] == "tidal"
     assert [opt["value"] for opt in caps["quality_options"]] == [
         "max",
-        "hires",
         "lossless",
         "high",
         "low",

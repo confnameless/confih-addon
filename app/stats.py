@@ -22,12 +22,14 @@ non-trivial bucket is 4xx, otherwise ``up``.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import ipaddress
 import json
 import logging
 import os
 import re
+import threading
 import time
 from collections import Counter
 from pathlib import Path
@@ -215,6 +217,8 @@ class TrafficStats:
         self._streamer_last_seen: dict[str, float] = {}
         # All-time unique user hashes (persisted to disk)
         self._all_time_users: set[str] = set()
+        # Monotonic: the set above is a capped dedupe window, this is the truth.
+        self._all_time_user_count: int = 0
 
         # Lifetime persistent counters (addon traffic only)
         self.total_requests_all_time = 0
@@ -243,8 +247,12 @@ class TrafficStats:
         self._daily: dict[int, dict[str, int]] = {}
         # Bounded ring of recent failover / error events (timestamps rounded to minute)
         self._incidents: list[dict[str, Any]] = []
+        # endpoint -> {status class: count}, bounded by the endpoint vocabulary.
+        self.endpoint_status: dict[str, dict[str, int]] = {}
         self._dirty = False
         self._last_save_at = time.monotonic()
+        self._pending_payload: dict[str, Any] | None = None
+        self._write_lock = threading.Lock()
 
         if self.persist_path is not None:
             self._load()
@@ -282,6 +290,12 @@ class TrafficStats:
             users = raw.get("all_time_users") or []
             if isinstance(users, list):
                 self._all_time_users = {str(u) for u in users[:_MAX_CLIENTS]}
+            # Older files only carry the capped set, so the counter starts from
+            # it once and then only grows.
+            self._all_time_user_count = max(
+                int(raw.get("all_time_user_count") or 0),
+                len(self._all_time_users),
+            )
             last_seen = raw.get("user_last_seen") or {}
             now = time.time()
             if isinstance(last_seen, dict):
@@ -353,13 +367,18 @@ class TrafficStats:
             log.warning("Could not load persisted stats from %s: %s", self.persist_path, exc)
 
     def save(self, force: bool = False) -> None:
+        """Snapshot in memory, then write the file off the event loop.
+
+        The payload is built here — the event loop owns these dicts — as plain
+        copies; the atomic file write is the only blocking part and runs in a
+        worker thread when a loop is running.
+        """
         if self.persist_path is None:
             return
         now_mono = time.monotonic()
         if not force and (not self._dirty or now_mono - self._last_save_at < 15.0):
             return
         try:
-            self.persist_path.parent.mkdir(parents=True, exist_ok=True)
             now = time.time()
             cur_hour = int(now // 3600)
             # Prune old 24h entries before saving
@@ -392,22 +411,43 @@ class TrafficStats:
                 "last_failover_at": self.last_failover_at,
                 "precache_resolutions": self.precache_resolutions,
                 "quality_tiers": dict(self.quality_tiers),
-                "observed_quality": self.observed_quality,
+                "observed_quality": {
+                    key: dict(value) for key, value in self.observed_quality.items()
+                },
                 "all_time_users": list(self._all_time_users)[:_MAX_CLIENTS],
-                "user_last_seen": self._user_last_seen,
+                "all_time_user_count": self._all_time_user_count,                "user_last_seen": self._user_last_seen,
                 "streamer_last_seen": self._streamer_last_seen,
-                "hourly": {str(h): v for h, v in self._hourly.items()},
-                "daily": {str(d): v for d, v in self._daily.items()},
-                "incidents": self._incidents[:25],
+                "hourly": {str(h): dict(v) for h, v in self._hourly.items()},
+                "daily": {str(d): dict(v) for d, v in self._daily.items()},
+                "incidents": [dict(item) for item in self._incidents[:25]],
                 "updated_at": int(now),
             }
-            tmp = self.persist_path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
-            os.replace(tmp, self.persist_path)
-            self._dirty = False
-            self._last_save_at = now_mono
         except Exception as exc:
-            log.warning("Failed to persist stats to %s: %s", self.persist_path, exc)
+            log.warning("Failed to build stats snapshot for %s: %s", self.persist_path, exc)
+            return
+        self._dirty = False
+        self._last_save_at = now_mono
+        self._pending_payload = payload
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._write_payload()
+        else:
+            loop.create_task(asyncio.to_thread(self._write_payload))
+
+    def _write_payload(self) -> None:
+        """Atomic replace of stats.json; runs in a worker thread when deferred."""
+        with self._write_lock:
+            payload = self._pending_payload
+            if payload is None or self.persist_path is None:
+                return
+            try:
+                self.persist_path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = self.persist_path.with_suffix(".tmp")
+                tmp.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+                os.replace(tmp, self.persist_path)
+            except Exception as exc:
+                log.warning("Failed to persist stats to %s: %s", self.persist_path, exc)
 
     def begin(self, endpoint: str, client: str, *, addon: bool = False) -> None:
         self.requests += 1
@@ -444,8 +484,15 @@ class TrafficStats:
         self._user_last_seen[h] = now
         if endpoint in ("stream", "dash"):
             self._streamer_last_seen[h] = now
-        if len(self._all_time_users) < _MAX_CLIENTS:
+        # The set is only a dedupe window and is capped for memory; the public
+        # all-time number is the counter, so it must not freeze at the cap.
+        if h not in self._all_time_users:
             self._all_time_users.add(h)
+            self._all_time_user_count += 1
+            if len(self._all_time_users) > _MAX_CLIENTS:
+                # Drop an arbitrary oldest-ish entry by pop(); membership is
+                # already recorded in the counter and recent activity maps.
+                self._all_time_users.pop()
         self._dirty = True
 
     def end(
@@ -454,8 +501,14 @@ class TrafficStats:
         elapsed_ms: float | None = None,
         *,
         addon: bool = False,
+        endpoint: str = "",
     ) -> None:
         self.statuses[status] += 1
+        if endpoint and addon:
+            # Which endpoint produced which status, so a flood can be attributed
+            # without guessing from aggregate counts. Bounded by endpoint name.
+            bucket = self.endpoint_status.setdefault(endpoint, {})
+            bucket[str(status)] = bucket.get(str(status), 0) + 1
         self.in_flight = max(0, self.in_flight - 1)
 
         if addon:
@@ -698,7 +751,7 @@ class TrafficStats:
             "active_streamers_window_seconds": _ACTIVE_STREAMERS_SEC,
             "active_1h": active_1h,
             "active_24h": active_24h,
-            "total_all_time": len(self._all_time_users),
+            "total_all_time": self._all_time_user_count,
         }
 
     def hourly_timeline(self, hours: int = 24) -> list[dict[str, Any]]:
@@ -816,6 +869,9 @@ class TrafficStats:
             "monitor_avg_response_ms": self.monitor_avg_response_ms,
             "by_endpoint": dict(self.by_endpoint),
             "statuses": {str(code): count for code, count in self.statuses.items()},
+            "endpoint_status": {
+                endpoint: dict(codes) for endpoint, codes in self.endpoint_status.items()
+            },
             "clients": len(self.clients),
             "clients_truncated": self.clients_truncated,
             "users": users,

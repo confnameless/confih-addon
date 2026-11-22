@@ -818,6 +818,8 @@
   display: inline-flex;
   align-items: center;
   gap: 0.42rem;
+  /* the status LED pulses outward; this keeps the ring off the search field */
+  margin-left: 0.2rem;
   font-family: var(--mono);
   font-size: 0.72rem;
   font-weight: 600;
@@ -1024,6 +1026,15 @@
   border-radius: 6px;
   background: color-mix(in srgb, var(--idle) 22%, transparent);
   transition: transform 0.16s var(--spring), background-color 0.16s var(--ease);
+}
+
+/* 24 columns share the chart, so a bar is ~8px wide on a phone. The ::after
+   is out of flow (not a flex item) and reaches exactly across the 3px gap to
+   the neighbouring column edge, making the whole column pitch tappable. */
+.plays-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0 -3px;
 }
 
 .plays-bar:hover,
@@ -1268,14 +1279,47 @@
   overflow-wrap: anywhere;
 }
 
+.track-quality-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.55rem;
+  min-width: 0;
+}
+
 .track-quality {
   display: flex;
+  flex: 0 1 108px;
+  min-width: 54px;
   gap: 2px;
   height: 5px;
-  margin-top: 0.55rem;
   background: var(--inset);
   border-radius: 99px;
   overflow: hidden;
+}
+
+.track-tier {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+  color: var(--ink-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.track-tier[data-tier="dolby_atmos"] {
+  color: var(--signal);
+}
+
+.track-tier[data-tier="hires_24bit"] {
+  color: var(--gold);
+}
+
+.track-tier[data-tier="lossless_16bit"] {
+  color: var(--cyan);
 }
 
 .track-quality > span {
@@ -1481,6 +1525,16 @@
 
   #plays-search {
     padding-right: 3rem;
+    /* iOS zooms the page on focus below 16px. */
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 520px) {
+  /* Typing on a phone deserves the full row, not a 240px slot. */
+  .plays-search-wrap {
+    flex-basis: 100%;
+    max-width: none;
   }
 }
 

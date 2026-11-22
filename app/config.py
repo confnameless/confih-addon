@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     # ── Addon ────────────────────────────────────────────────────────────
     addon_id: str = "app.bitchord.confih"
     addon_name: str = "Confih Hi-Res"
-    addon_version: str = "2.0.0"
+    addon_version: str = "2.6.1"
     public_base_url: str = ""
     addon_path_secret: str = ""
     admin_path_secret: str = ""
@@ -51,6 +51,18 @@ class Settings(BaseSettings):
     telegram_chat_id: str = ""
     # Optional bearer token for GET /stats. Empty hides the route entirely.
     stats_token: str = ""
+    # Separate secret for the admin vault. Empty falls back to STATS_TOKEN so
+    # existing deployments keep working; set it to stop one leak from granting
+    # account management as well as read access to stats.
+    vault_password: str = ""
+    # Unauthenticated addon requests (bots aimed at a public URL) are refused
+    # anyway; this stops them from being a free way to generate load. 0 = off.
+    auth_failure_per_minute: int = Field(default=30, ge=0, le=10_000)
+    # Pre-resolve the track a listener is about to play. Only sequences learned
+    # from real playback are used, so this is a latency win rather than a guess.
+    precache_enabled: bool = True
+    # Upper bound on memory held by cached MPEG-DASH manifests.
+    dash_cache_max_mb: int = Field(default=48, ge=4, le=512)
     stats_log_interval_seconds: int = Field(default=60, ge=0)
     allow_downloads: bool = True
     check_valid_lossless: bool = False
@@ -121,6 +133,10 @@ class Settings(BaseSettings):
     qobuz_token_check_interval_seconds: int = Field(default=21_600, ge=0)
     qobuz_token_file: str = ""
 
+    # Upper bound on how many accounts are probed for one resolution. Extra
+    # probes only happen when an account answered below the requested rung.
+    resolve_probe_accounts: int = Field(default=3, ge=1, le=8)
+
     # ── Caching / limits ─────────────────────────────────────────────────
     search_cache_ttl_seconds: int = Field(default=600, ge=0, le=3_600)
     stream_cache_ttl_seconds: int = Field(default=300, ge=0, le=3_600)
@@ -138,7 +154,7 @@ class Settings(BaseSettings):
     def _strip_secret_whitespace(cls, value: str) -> str:
         return value.strip()
 
-    @field_validator("addon_path_secret", "stats_token", "admin_path_secret")
+    @field_validator("addon_path_secret", "stats_token", "admin_path_secret", "vault_password")
     @classmethod
     def _validate_path_secret(cls, value: str) -> str:
         value = value.strip()
