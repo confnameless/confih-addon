@@ -232,25 +232,62 @@ def test_search_and_filter_recent_with_query_and_tier() -> None:
     assert ledger.filter_recent("daft", limit=10, tier="invalid_tier") == []
 
 
-def test_record_preserves_hot_tracks_via_lru_eviction() -> None:
-    ledger = PlayLedger()
-    _play(ledger, track="top_hit", title="Top Hit", client="10.0.0.1")
-    for idx in range(499):
-        _play(ledger, track=f"idle_{idx}", title=f"Idle {idx}", client="10.0.0.2")
+def test_eviction_keeps_the_leaders_not_the_freshest(monkeypatch) -> None:
+    """A full ledger drops its tail by rank, not by how recently it played.
 
-    # Replaying an existing track must move it to MRU so subsequent insertions
-    # evict idle tracks rather than the active track.
+    The old rule evicted the least-recently-played track, so a leader vanished
+    as soon as it stopped being played; on the live ledger 500 tracks held 523
+    of 1458 counted plays, i.e. most of the ranking had already been deleted.
+    """
+    import app.plays as plays_module
+
+    monkeypatch.setattr(plays_module, "_MAX_TRACKS", 60)
+    ledger = PlayLedger()
     for _ in range(5):
         _play(ledger, track="top_hit", title="Top Hit", client="10.0.0.1")
+    for idx in range(59):
+        _play(ledger, track=f"idle_{idx}", title=f"Idle {idx}", client="10.0.0.2")
 
+    # Ten more one-play tracks push the ledger over its cap.
     for idx in range(10):
         _play(ledger, track=f"new_{idx}", title=f"New {idx}", client="10.0.0.3")
 
-    surviving_ids = {row["id"] for row in ledger.top(500)}
-    assert "top_hit" in surviving_ids
+    rows = {row["id"]: row for row in ledger.top(500)}
+    assert len(rows) == 60, "the ledger stays bounded"
+    assert "top_hit" in rows, "the most played track is never evicted"
+    assert rows["top_hit"]["plays"] == 5
     for idx in range(10):
-        assert f"idle_{idx}" not in surviving_ids
-        assert f"new_{idx}" in surviving_ids
+        assert f"idle_{idx}" not in rows, "the oldest one-play tracks go first"
+        assert f"new_{idx}" in rows
+    assert ledger.totals()["plays"] == 5 + 59 + 10, "eviction never loses a count"
+
+
+def test_ranking_is_stable_and_not_a_live_feed() -> None:
+    """Equal play counts must not reshuffle the list every time one is played."""
+    ledger = PlayLedger()
+    _play(ledger, track="first", title="First", client="10.0.0.1")
+    _play(ledger, track="second", title="Second", client="10.0.0.2")
+    _play(ledger, track="third", title="Third", client="10.0.0.3")
+    assert [row["id"] for row in ledger.top(10)] == ["first", "second", "third"]
+
+    # Replaying the newest of three tied tracks must not rearrange the others.
+    _play(ledger, track="third", title="Third", client="10.0.0.3")
+    assert [row["id"] for row in ledger.top(10)] == ["third", "first", "second"]
+
+
+def test_ranking_survives_a_restart(tmp_path: Path) -> None:
+    """The order a listener saw is the order they see after a restart."""
+    path = tmp_path / "plays.json"
+    ledger = PlayLedger(persist_path=path)
+    for track, times in (("a", 3), ("b", 2), ("c", 2), ("d", 1)):
+        for _ in range(times):
+            _play(ledger, track=track, title=track.upper())
+    ledger.save(force=True)
+    before = [row["id"] for row in ledger.top(10)]
+
+    restarted = PlayLedger(persist_path=path)
+    assert [row["id"] for row in restarted.top(10)] == before
+    assert restarted.totals()["plays"] == 8
 
 
 def test_save_retry_not_blocked_by_debounce_after_write_failure(

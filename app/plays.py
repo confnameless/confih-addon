@@ -47,7 +47,13 @@ TIER_LABELS: dict[str, str] = {
     "high_320": "High 320 kbps",
 }
 
-_MAX_TRACKS = 500
+# When the ledger is full, the least-played track goes. The old rule was
+# least-recently-played, which deleted a leader the moment it stopped being
+# played: on the live ledger 500 tracks held 523 of 1458 counted plays, so most
+# of the ranking had already been thrown away. A few thousand rows is still
+# small (a few hundred KB of JSON), so the cap is generous and the victim is
+# chosen by rank rather than by freshness.
+_MAX_TRACKS = 2000
 # The feed is meant to hold a whole listening session, not just its tail: a
 # burst of skips used to fall off a 40-entry window before the page could show
 # them. Bounded, but well past any single sitting.
@@ -63,6 +69,20 @@ def _hash_client(subject: str) -> str:
 
 # Regenerated per process: hashes from a previous run do not link to this one.
 _SALT = hashlib.sha256(os.urandom(32)).hexdigest()
+
+
+def _rank_key(track: TrackPlays) -> tuple[int, int, int, str]:
+    """Order the leaderboard: most played, then most listeners, then oldest.
+
+    The last rung used to be ``last_seen``, which is a different question —
+    *what is playing now*. It made the page a live feed wearing a leaderboard's
+    clothes: with a young ledger most tracks sit on one play each, so every new
+    play reordered the whole list and looked like the ranking had been wiped.
+    Ties now fall back to when the track was first seen and then to its id, so
+    the same data always renders in the same order — across requests and across
+    restarts. "What is playing now" is the recent feed's job.
+    """
+    return (-track.plays, -track.listeners_total, track.first_seen, track.id)
 
 
 def _hour_epoch(ts: int) -> int:
@@ -230,8 +250,7 @@ class PlayLedger:
                 )
                 self._tracks[track_id] = track
                 self._tracks.move_to_end(track_id)
-                while len(self._tracks) > _MAX_TRACKS:
-                    self._tracks.popitem(last=False)
+                self._evict_over_capacity(keep=track_id)
             else:
                 # Keep the freshest presentation data; artwork arrives late.
                 if title and track.title in ("", "Unknown track"):
@@ -276,6 +295,27 @@ class PlayLedger:
             )
             self._dirty = True
 
+    def _evict_over_capacity(self, *, keep: str = "") -> None:
+        """Drop the lowest-ranked track while the ledger is over the cap.
+
+        ``keep`` is the track recorded just now. A brand-new one-play track is
+        the cheapest thing to lose, but deleting it in the same breath would
+        make a play that just happened look uncounted, so anything else goes
+        first while something else is available.
+        """
+        while len(self._tracks) > _MAX_TRACKS:
+            candidates = [tid for tid in self._tracks if tid != keep]
+            if not candidates:
+                return
+            victim = min(
+                candidates,
+                key=lambda tid: (
+                    self._tracks[tid].plays,
+                    self._tracks[tid].last_seen,
+                ),
+            )
+            self._tracks.pop(victim, None)
+
     def _trim_hours(self) -> None:
         cutoff = _hour_epoch(int(time.time())) - (_MAX_HOURS * 3600)
         while self._hourly and next(iter(self._hourly)) < cutoff:
@@ -309,9 +349,7 @@ class PlayLedger:
 
     def top(self, limit: int = 12) -> list[dict[str, Any]]:
         with self._lock:
-            ranked = sorted(
-                self._tracks.values(), key=lambda t: (-t.plays, -t.last_seen)
-            )[: max(0, limit)]
+            ranked = sorted(self._tracks.values(), key=_rank_key)[: max(0, limit)]
             return [self._row(t) for t in ranked]
 
     def search(
@@ -341,7 +379,7 @@ class PlayLedger:
                     if not all(tok in haystack for tok in tokens):
                         continue
                 matches.append(track)
-            matches.sort(key=lambda t: (-t.plays, -t.last_seen))
+            matches.sort(key=_rank_key)
             return [self._row(t) for t in matches[: max(0, limit)]]
 
     def recent(self, limit: int = 12) -> list[dict[str, Any]]:
