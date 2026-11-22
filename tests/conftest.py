@@ -84,6 +84,10 @@ class FakeQobuz:
             5: STREAM_MP3,
         }
         self.stream_errors: dict[int, tuple[int, str]] = {}
+        # Restriction codes Qobuz attaches per rendition. Its edge nodes attach
+        # them to full-length streams at random, so they must not be read as
+        # "this rendition does not exist".
+        self.restriction_codes: dict[int, list[str]] = {}
         self.geo_blocked = False
         self.sample = False
         self.auth_error = False
@@ -182,6 +186,9 @@ class FakeQobuz:
                     404,
                     json={"status": "error", "code": 404, "message": "No such format"},
                 )
+            codes = self.restriction_codes.get(format_id)
+            if codes:
+                data = {**data, "restrictions": [{"code": code} for code in codes]}
             return httpx.Response(200, json=data)
 
         return httpx.Response(

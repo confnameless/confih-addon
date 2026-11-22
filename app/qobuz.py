@@ -840,6 +840,10 @@ class QobuzClient:
             raise QobuzGeoBlocked(self._geo_message())
 
         last_error: QobuzError | None = None
+        # A rendition Qobuz annotated with a caveat code but still delivered in
+        # full. Held back so a lower rung, or a failover provider, only wins
+        # when it is genuinely better.
+        restricted_fallback: QobuzStream | None = None
         for format_id in format_plan(quality):
             try:
                 data = await self.get_file_url(track_id, format_id)
@@ -892,20 +896,15 @@ class QobuzClient:
                 self._token_error = err_msg
                 self._token_checked_at = time.monotonic()
                 raise QobuzAuthError(err_msg)
-            if codes:
-                last_error = QobuzNotFound(
-                    "Qobuz has no " + quality + " stream for this track ("
-                    + ", ".join(codes) + ")"
-                )
-                continue
 
             url = str(data.get("url") or "").strip()
             if not url:
                 last_error = QobuzNotFound("Qobuz returned no stream URL")
                 continue
 
-            # A sample is HTTP 200, so the only trustworthy signals are the
-            # sample flag, the 20-30 second range, and the restrictions list.
+            # A sample is HTTP 200, so the trustworthy signals are the sample
+            # flag and the 20-30 second range. A restriction code alone is not
+            # one of them: Qobuz attaches codes to full-length streams too.
             if (
                 data.get("sample") is True
                 or "range=20-30" in url
@@ -923,7 +922,7 @@ class QobuzClient:
             self._token_ok = True
             self._token_error = None
             actual_format = _as_int(data.get("format_id")) or format_id
-            return QobuzStream(
+            stream = QobuzStream(
                 url=url,
                 format_id=actual_format,
                 mime_type=str(data.get("mime_type") or ""),
@@ -932,7 +931,48 @@ class QobuzClient:
                 restrictions=tuple(codes),
                 requested_format_id=format_id,
             )
+            if not codes:
+                # A clean rendition only settles the request when it is at
+                # least as good as an annotated one already in hand.
+                if restricted_fallback is None or _rendition_score(
+                    stream
+                ) >= _rendition_score(restricted_fallback):
+                    return stream
+                continue
 
+            # Qobuz annotates perfectly usable renditions with codes such as
+            # FormatRestrictedByFormatAvailability (192 kHz was asked for and
+            # the master is 24-bit/44.1) and SampleRestrictedByRightHolders.
+            # Both arrive with a full-length URL, and one of its edge nodes
+            # adds them at random: discarding them is what sent a play to
+            # Tidal's CD master while Qobuz held the 24-bit file. Keep the best
+            # annotated rendition and let a clean rung beat it.
+            last_error = QobuzNotFound(
+                "Qobuz has no clean " + quality + " stream for this track ("
+                + ", ".join(codes) + ")"
+            )
+            if restricted_fallback is None or _rendition_score(stream) > _rendition_score(
+                restricted_fallback
+            ):
+                restricted_fallback = stream
+            log.info(
+                "qobuz: %s format %s came back annotated (%s) but playable at %s-bit; "
+                "trying the next rung for a clean answer",
+                track_id,
+                format_id,
+                ", ".join(codes),
+                stream.bit_depth,
+            )
+
+        if restricted_fallback is not None:
+            log.warning(
+                "qobuz: serving %s at %s-bit with %s attached; no clean rendition "
+                "was on offer",
+                track_id,
+                restricted_fallback.bit_depth,
+                ", ".join(restricted_fallback.restrictions),
+            )
+            return restricted_fallback
         raise last_error or QobuzNotFound("Qobuz has no playable stream for this track")
 
     # ── Health ───────────────────────────────────────────────────────────
@@ -1052,6 +1092,11 @@ def _restriction_codes(restrictions: Any) -> list[str]:
         if isinstance(code, str) and code.strip():
             codes.append(code.strip())
     return codes
+
+
+def _rendition_score(stream: QobuzStream) -> tuple[int, float]:
+    """Rank renditions the way a listener would: depth first, then rate."""
+    return (stream.bit_depth or 0, stream.sampling_rate_khz or 0.0)
 
 
 def _is_auth_restriction(code: str) -> bool:

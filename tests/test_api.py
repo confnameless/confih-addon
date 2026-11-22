@@ -160,6 +160,62 @@ async def test_stream_is_cached(http: httpx.AsyncClient, fake: FakeQobuz) -> Non
 
 
 @pytest.mark.asyncio
+async def test_annotated_rendition_is_not_read_as_a_miss(
+    http: httpx.AsyncClient, fake: FakeQobuz
+) -> None:
+    # One of Qobuz's own edge nodes annotates every rung with a caveat code
+    # above. The renditions are still full-length, so the play must keep its
+    # 24/192 master instead of falling through to whatever a failover serves.
+    for format_id in (27, 7, 6, 5):
+        fake.restriction_codes[format_id] = ["SampleRestrictedByRightHolders"]
+
+    response = await http.get("/stream/5966783", params={"quality": "max"})
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["sampleRate"] == 192000
+    assert body["bitDepth"] == 24
+    assert "Hi-Res" in body["quality"]
+
+
+@pytest.mark.asyncio
+async def test_annotated_master_beats_a_clean_lower_rung(
+    http: httpx.AsyncClient, fake: FakeQobuz
+) -> None:
+    # 24/192 arrives annotated while 24/96 is clean. The better master wins:
+    # trading bit depth for a tidy response is the bug this guards.
+    fake.restriction_codes[27] = ["FormatRestrictedByFormatAvailability"]
+
+    response = await http.get("/stream/5966783", params={"quality": "max"})
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["sampleRate"] == 192000
+    assert body["bitDepth"] == 24
+
+
+@pytest.mark.asyncio
+async def test_annotated_sample_is_still_refused(
+    http: httpx.AsyncClient, fake: FakeQobuz
+) -> None:
+    # A caveat code must not unlock a 30-second preview: the sample signals
+    # stay fatal however the response is annotated.
+    fake.restriction_codes[27] = ["SampleRestrictedByRightHolders"]
+    fake.stream_data[27] = {
+        "url": "https://cdn.example/audio/preview.flac?range=20-30",
+        "format_id": 27,
+        "sample": True,
+        "mime_type": "audio/flac",
+        "bit_depth": 24,
+    }
+
+    response = await http.get("/stream/5966783", params={"quality": "max"})
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "qobuz_auth"
+
+
+@pytest.mark.asyncio
 async def test_sample_is_never_returned_as_audio(http: httpx.AsyncClient, fake: FakeQobuz) -> None:
     fake.sample = True
     response = await http.get("/stream/5966783", params={"quality": "max"})
