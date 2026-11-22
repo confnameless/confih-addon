@@ -500,14 +500,21 @@
     6px 0 18px -6px rgba(0, 0, 0, 0.82),
     0 16px 32px -10px rgba(0, 0, 0, 0.78);
   transform: none;
-  transition: opacity var(--t-mid) var(--ease);
+  transition:
+    opacity var(--t-mid) var(--ease),
+    transform var(--t-mid) var(--ease);
 }
 
-/* Sleeve art swaps as a crossfade: the outgoing cover dissolves under the
-   incoming one, which is appended only once its bitmap has decoded. */
-#telemetry-track-cover.is-cover-in,
+/* The incoming cover is never transparent: it arrives opaque and settles from
+   a slight scale, so the sleeve can not be left blank by a dropped frame. */
+#telemetry-track-cover.is-cover-in {
+  transform: scale(0.965);
+}
+
+/* Only the cover leaving the stage fades, and it sits under the new one. */
 #telemetry-track-cover.is-cover-out {
   opacity: 0;
+  transform: scale(1.02);
 }
 
 /* Physical gatefold spine crease & acrylic sleeve sheen */
@@ -705,6 +712,23 @@
   object-fit: cover;
 }
 
+/* Sleeve art sits on top of the monogram and fades in once its bitmap has
+   decoded. The card is correct the moment the track changes; only the pixels
+   arrive late. */
+.track-cover .cover-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 240ms var(--ease, ease-out);
+}
+
+.track-cover .cover-art.is-loaded {
+  opacity: 1;
+}
+
 .cover-fallback {
   display: grid;
   place-items: center;
@@ -722,6 +746,8 @@
 
 #telemetry-track-cover .cover-fallback {
   font-size: 2.6rem;
+  position: absolute;
+  inset: 0;
 }
 
 .cover-monogram {

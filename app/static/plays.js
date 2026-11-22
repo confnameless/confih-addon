@@ -301,8 +301,39 @@
     });
   }
 
-  /* Crossfade the sleeve art instead of hard-replacing the node: the previous
-     cover fades out under the new one, which waits for its bitmap first. */
+  /* A sleeve that shows the right track immediately: the monogram sits behind
+     the art, so the card is correct the instant the title changes and the
+     bitmap fades in over it when it decodes. Waiting for the bitmap before
+     swapping is what left the previous track's cover sitting under a new
+     title whenever an /art/ request was slow or failed. */
+  function heroCoverNode(row) {
+    var wrap = el('div', 'track-cover');
+    wrap.id = 'telemetry-track-cover';
+    wrap.appendChild(fallback(row));
+    var src = row && row.artwork;
+    if (!src) return wrap;
+    var img = el('img', 'cover-art');
+    img.alt = '';
+    img.decoding = 'async';
+    img.referrerPolicy = 'no-referrer';
+    img.addEventListener('load', function () {
+      img.classList.add('is-loaded');
+    }, { once: true });
+    img.addEventListener('error', function () {
+      /* Leave the monogram: the cover is missing, the sleeve is still right. */
+      if (img.parentNode) img.parentNode.removeChild(img);
+    }, { once: true });
+    img.src = src;
+    wrap.appendChild(img);
+    if (img.complete && img.naturalWidth) img.classList.add('is-loaded');
+    return wrap;
+  }
+
+  /* Swap the sleeve with a short reveal: the incoming cover is opaque from the
+     first frame and settles from a slight scale, while the outgoing one fades
+     underneath it. Only the outgoing node animates opacity — an incoming cover
+     that began at zero would leave a blank sleeve whenever the browser dropped
+     or deferred the frame (a background tab does exactly that). */
   function swapHeroCover(row, instant) {
     var current = els.heroCover;
     var stage = current && current.parentNode;
@@ -311,9 +342,7 @@
     if (key === state.heroCoverKey) return;
     state.heroCoverKey = key;
 
-    var fresh = cover(row);
-    fresh.className = 'track-cover';
-    fresh.id = 'telemetry-track-cover';
+    var fresh = heroCoverNode(row);
     fresh.setAttribute('data-cover-key', key);
 
     if (instant) {
@@ -322,25 +351,15 @@
       return;
     }
 
-    function start() {
-      fresh.classList.add('is-cover-in');
-      stage.appendChild(fresh);
-      void fresh.offsetWidth;
-      fresh.classList.remove('is-cover-in');
-      current.classList.add('is-cover-out');
-      window.setTimeout(function () {
-        if (current.parentNode) current.parentNode.removeChild(current);
-      }, 280);
-      els.heroCover = fresh;
-    }
-
-    var img = fresh.querySelector('img');
-    if (img && !img.complete) {
-      img.addEventListener('load', start, { once: true });
-      img.addEventListener('error', start, { once: true });
-    } else {
-      start();
-    }
+    fresh.classList.add('is-cover-in');
+    stage.appendChild(fresh);
+    void fresh.offsetWidth;
+    fresh.classList.remove('is-cover-in');
+    current.classList.add('is-cover-out');
+    window.setTimeout(function () {
+      if (current.parentNode) current.parentNode.removeChild(current);
+    }, 280);
+    els.heroCover = fresh;
   }
 
   /* The sleeve art also drives an ambient wash behind the plate: two stacked
