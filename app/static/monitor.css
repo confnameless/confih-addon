@@ -1608,6 +1608,24 @@
   letter-spacing: 0.01em;
 }
 
+.provider-accounts {
+  padding: 0.12rem 0.48rem;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--edge);
+  background: rgba(255, 255, 255, 0.03);
+  font-family: var(--mono);
+  font-size: 0.67rem;
+  font-weight: 500;
+  color: var(--ink-3);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.provider-accounts[data-degraded="true"] {
+  border-color: color-mix(in oklab, #f0a93b 45%, var(--edge));
+  color: #f0a93b;
+}
+
 .monogram {
   display: grid;
   place-items: center;

@@ -1265,10 +1265,18 @@ class ProviderPool:
                 "Qobuz session expired · Tidal served it"
                 if (
                     "unauthenticated" in str(qobuz_exc).lower()
-                    or not getattr(self.primary_qobuz, "is_healthy", False)
+                    # The pool is what serves a play; the .env primary can be
+                    # unhealthy while another account streams fine, and calling
+                    # that "session expired" sends people chasing a dead token
+                    # that is not the reason.
+                    or not self.has_healthy_qobuz
                 )
                 else (
-                    "Not in Qobuz catalogue · Tidal served it"
+                    (
+                        "No Hi-Res on Qobuz · Tidal served it"
+                        if _target_bit_depth(tier) >= 24
+                        else "Not in Qobuz catalogue · Tidal served it"
+                    )
                     if isinstance(qobuz_exc, QobuzNotFound)
                     else "Qobuz error/rate-limit"
                 )

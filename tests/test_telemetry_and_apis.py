@@ -392,3 +392,26 @@ def test_logging_redacts_oauth_query_params() -> None:
     for secret in ("tidal_acc_999", "tidal_ref_888", "cli_sec_777"):
         assert secret not in logged
     assert logged.count("***") >= 3
+
+
+def test_routing_that_was_served_folds_instead_of_stacking() -> None:
+    # "Qobuz session expired · Tidal served it" repeats for as long as people
+    # play tracks one engine cannot stream. The request was answered, so the
+    # feed keeps one row with a count instead of a wall of identical warnings.
+    from app.stats import TrafficStats, _incident_severity
+
+    assert _incident_severity("failover", "Qobuz session expired · Tidal served it") == "info"
+    assert _incident_severity("failover", "Qobuz error/rate-limit") == "warn"
+
+    stats = TrafficStats.__new__(TrafficStats)
+    stats._incidents = []
+    base = 1_800_000_000
+    for minute in range(0, 100, 20):
+        stats._record_incident(
+            "failover", "Qobuz session expired · Tidal served it", now_ts=base + minute * 60
+        )
+
+    rows = stats.recent_incidents(25)
+    assert len(rows) == 1
+    assert rows[0]["severity"] == "info"
+    assert rows[0]["count"] == 5

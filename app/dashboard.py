@@ -845,6 +845,7 @@ APP_SHELL_HTML = r"""<!DOCTYPE html>
                   <div class="provider-title-line">
                     <h3>Qobuz</h3>
                     <span class="provider-tier">FLAC 24-bit · 192 kHz</span>
+                    <span class="provider-accounts" id="qobuz-accounts" hidden></span>
                   </div>
                   <p id="qobuz-role">Checking…</p>
                 </div>
@@ -887,6 +888,7 @@ APP_SHELL_HTML = r"""<!DOCTYPE html>
                   <div class="provider-title-line">
                     <h3>Tidal</h3>
                     <span class="provider-tier">Dolby Atmos · Master FLAC</span>
+                    <span class="provider-accounts" id="tidal-accounts" hidden></span>
                   </div>
                   <p id="tidal-role">Checking…</p>
                 </div>

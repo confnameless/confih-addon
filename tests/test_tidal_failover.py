@@ -464,3 +464,35 @@ def test_rejected_accounts_queue_behind_healthy_ones() -> None:
     ordered = ProviderPool._order_by_capability(clients, {})
 
     assert [account_id for account_id, _, _ in ordered] == ["live", "dead-1", "dead-2"]
+
+
+@pytest.mark.asyncio
+async def test_a_pool_miss_is_not_reported_as_a_dead_session(tmp_path) -> None:
+    # The .env primary account being unhappy is not the pool being expired: the
+    # event has to name what actually happened, or it sends people chasing a
+    # dead token while every account streams fine.
+    admin_tok = "a" * 32
+    settings = make_settings(tmp_path, stats_token=admin_tok, primary_provider="qobuz")
+    fake_q = FakeQobuz()
+    for format_id in (27, 7, 6, 5):
+        fake_q.stream_errors[format_id] = (400, "No result matching given argument")
+    dual = DualMockBackend(fake_q)
+    app = create_app(settings, transport=httpx.MockTransport(dual))
+
+    async with LifespanManager(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            await client.post(
+                "/internal/admin/tidal/add",
+                headers={"X-Admin-Token": admin_tok},
+                json={"access_token": "tidal-tok-123", "label": "Tidal Main"},
+            )
+            await client.get("/search", params={"q": "one more time", "quality": "max"})
+            response = await client.get("/stream/5966783", params={"quality": "max"})
+
+    assert response.status_code == 200
+    assert response.json()["bitDepth"] == 24
+    reasons = app.state.stats.failover_reasons
+    assert "No Hi-Res on Qobuz · Tidal served it" in reasons
+    assert not [r for r in reasons if "session expired" in r]

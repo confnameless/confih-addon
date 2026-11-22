@@ -630,3 +630,27 @@ async def test_admin_and_vault_post_routes_reject_malformed_or_invalid_json_with
                 )
                 assert empty_qobuz.status_code == 400
 
+
+
+async def test_provider_cards_report_the_pool_size(tmp_path: Path) -> None:
+    # The pool is what serves a play, so each engine card carries the number of
+    # accounts behind it, not just whether one of them answered.
+    app = create_app(
+        make_settings(tmp_path),
+        transport=httpx.MockTransport(FakeQobuz()),
+    )
+    async with LifespanManager(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://127.0.0.1:8899",
+        ) as client:
+            body = (await client.get("/status", headers={"Accept": "text/html"})).text
+
+    assert 'id="qobuz-accounts"' in body
+    assert 'id="tidal-accounts"' in body
+
+    static = Path(__file__).resolve().parents[1] / "app" / "static"
+    monitor_js = (static / "monitor.js").read_text()
+    assert "key + '-accounts'" in monitor_js
+    assert "svc.total_nodes" in monitor_js
+    assert ".provider-accounts" in (static / "monitor.css").read_text()

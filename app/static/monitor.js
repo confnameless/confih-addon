@@ -498,6 +498,24 @@
         var streamsEl = $(key + '-streams');
         if (streamsEl && svc && svc.streams_served !== undefined) streamsEl.setAttribute('title', full(svc.streams_served));
         setText($(key + '-tech-role'), (svc && svc.role) || ROLE_WORDS[status]);
+        var accountsEl = $(key + '-accounts');
+        if (accountsEl) {
+          var total = num(svc && svc.total_nodes);
+          var active = num(svc && svc.active_nodes);
+          if (!total) {
+            accountsEl.hidden = true;
+            setText(accountsEl, '');
+          } else {
+            // The pool is what actually serves a play, so the card says how
+            // many accounts are behind it, not just whether one answered.
+            accountsEl.hidden = false;
+            setText(accountsEl, active === total
+              ? total + (total === 1 ? ' account' : ' accounts')
+              : active + ' of ' + total + ' accounts');
+            accountsEl.setAttribute('title', active + ' of ' + total + ' accounts healthy');
+            accountsEl.setAttribute('data-degraded', active < total ? 'true' : 'false');
+          }
+        }
         var nodes = '—';
         if (svc && svc.total_nodes !== undefined && svc.total_nodes !== null) {
           nodes = num(svc.active_nodes) + ' of ' + num(svc.total_nodes) + ' online';

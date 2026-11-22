@@ -92,6 +92,11 @@ _ROUTING_REASONS = (
     "not in tidal catalogue",
     "not on qobuz",
     "not on tidal",
+    # Any line ending in "served it" describes routing that worked: the other
+    # engine answered. Those repeat for as long as people play tracks one
+    # catalogue lacks, so they fold into one row instead of stacking up the
+    # feed with the same sentence.
+    "served it",
 )
 
 #: Words that mean the engine itself is unhappy, even next to a routing reason.
